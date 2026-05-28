@@ -13,3 +13,6 @@ active_pids/
 servers.json
 last_*
 *.bak
+
+# MiniMax API key
+minimax.env

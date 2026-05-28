@@ -1,0 +1,25 @@
+# MiniMax Custom Provider Configuration
+# Esta config usa el endpoint China (api.minimaxi.com) automáticamente
+# porque la API key empieza con "sk-cp-"
+
+[provider]
+default_provider = "minimax-api"
+default_model = "MiniMax-M2.7"
+
+[providers.minimax-api]
+type = "openai-compatible"
+# El código detecta "sk-cp-" y cambia automáticamente a api.minimaxi.com
+api_base = "https://api.minimax.io/v1"
+auth = "bearer"
+# La API key se guarda en ~/.config/jcode/minimax.env
+api_key_env = "OPENAI_API_KEY"
+env_file = "minimax.env"
+default_model = "MiniMax-M2.7"
+requires_api_key = true
+
+[[providers.minimax-api.models]]
+id = "MiniMax-M2.7"
+context_window = 1000000
+
+# Nota: Para MiniMax China (API key sk-cp-*), el código automáticamente
+# cambia el endpoint a https://api.minimaxi.com/v1
