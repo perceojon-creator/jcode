@@ -1,0 +1,114 @@
+name: Build jcode for Android/Termux
+
+on:
+  push:
+    branches: [ master, android-support ]
+  pull_request:
+    branches: [ master, android-support ]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - android-aarch64
+          - linux-x86_64
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+          
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          
+      - name: Configure Cargo for cross-compilation
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'CARGO'
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+CARGO
+          
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          
+      - name: Build jcode for Android (aarch64)
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu -p jcode --bin jcode
+          
+      - name: Strip binary for size
+        run: |
+          aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/jcode
+          
+      - name: Upload Android binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: jcode-android-aarch64
+          path: target/aarch64-unknown-linux-gnu/release/jcode
+          retention-days: 7
+          
+      - name: Build for Linux (x86_64)
+        run: |
+          cargo build --release -p jcode --bin jcode
+          
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: jcode-linux-x86_64
+          path: target/release/jcode
+          retention-days: 7
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download Android binary
+        uses: actions/download-artifact@v4
+        with:
+          name: jcode-android-aarch64
+          path: dist/
+          
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: jcode-linux-x86_64
+          path: dist/
+          
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
