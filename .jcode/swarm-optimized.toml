@@ -1,0 +1,50 @@
+# ============================================
+# OPTIMIZACIÓN SWARM - 5 AGENTS - PLAN $20/MES
+# ============================================
+# Plan: 4500 requests / 5 horas = 900 req/hora
+# Filosofía: SIN DELAYS - máximo paralelismo
+# ============================================
+
+[swarm]
+# NO stagger - swarm es paralelo por diseño
+max_concurrent_agents = 5
+parallel_execution = true
+
+[memory]
+# Extraer a memoria más seguido = menos contexto en cada request
+auto_extract_threshold_messages = 15
+auto_extract_semantic_drift = 0.75
+embedding_batch_size = 50
+consolidate_interval_turns = 20
+
+[context]
+# Reducir ventana por agente para más sesiones
+max_context_turns = 25
+compact_trigger_turns = 18
+summary_trigger_turns = 12
+shared_repo_context = true
+
+[tools]
+# Más tools por turn = menos requests
+tool_batching_enabled = true
+max_tools_per_turn = 8
+parallel_tool_execution = true
+
+[api]
+# OFF para ahorrar overhead
+streaming_mode = "off"
+max_tokens_per_request = 2048
+cache_prompt_tokens = true
+
+[provider.minimax-api]
+# Límite output para ahorrar
+max_tokens = 2048
+
+[tui]
+# Mínimo overhead de render
+render_fps = 30
+info_widgets_minimal = true
+
+[monitoring]
+log_requests = true
+alert_threshold_requests_pct = 80

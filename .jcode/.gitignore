@@ -1,0 +1,15 @@
+# Excluir datos sensibles
+config.toml
+auth*.json
+*.env
+memory/projects/
+sessions/
+telemetry_*.txt
+telemetry_*/
+models/
+builds/
+logs/
+active_pids/
+servers.json
+last_*
+*.bak
