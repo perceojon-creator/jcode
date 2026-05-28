@@ -224,7 +224,7 @@ aws-sdk-sts = "1.103.0"
 # semantic retrieval, and embedding-backed features work out of the box.
 # Use `JCODE_DEV_FEATURE_PROFILE=minimal` for compile-speed probes that need
 # to skip optional default feature stacks.
-default = ["pdf", "embeddings"]
+default = []
 dev-bins = []
 jemalloc = [
     "dep:tikv-jemallocator",
