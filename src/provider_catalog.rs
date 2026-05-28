@@ -109,14 +109,19 @@ fn apply_profile_key_based_endpoint_overrides(
         .map(ToString::to_string)
         .or_else(|| load_env_value_from_env_or_config(profile.api_key_env, profile.env_file));
 
-    if key
-        .as_deref()
-        .map(|key| key.trim_start().starts_with("sk-cp-"))
-        .unwrap_or(false)
-    {
-        resolved.api_base = MINIMAX_CHINA_API_BASE.to_string();
-        resolved.setup_url = MINIMAX_CHINA_SETUP_URL.to_string();
-    }
+    // FIXED 2026-05-28: Removed forced China endpoint routing
+    // User's sk-cp-* key works with international endpoint (api.minimax.io)
+    // The prefix sk-cp- does NOT automatically mean China endpoint
+    // Use the default api_base instead to avoid 401 errors
+    // 
+    // if key
+    //     .as_deref()
+    //     .map(|key| key.trim_start().starts_with("sk-cp-"))
+    //     .unwrap_or(false)
+    // {
+    //     resolved.api_base = MINIMAX_CHINA_API_BASE.to_string();
+    //     resolved.setup_url = MINIMAX_CHINA_SETUP_URL.to_string();
+    // }
 }
 
 pub fn resolve_openai_compatible_profile_selection(input: &str) -> Option<OpenAiCompatibleProfile> {
