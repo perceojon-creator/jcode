@@ -1,6 +1,27 @@
 [build]
+# SCCache configuration for faster Rust compilation
 # Set RUSTC_WRAPPER=sccache in your shell env; no hardcoded path needed.
 # CI overrides this file, so leaving rustc-wrapper unset here is safe.
 # Local fast-linker selection is handled by scripts/dev_cargo.sh so we don't
 # hard-force a linker mode that may be broken on a contributor machine.
 jobs = 6
+
+# Optimized dev profile for quick iteration
+[profile.dev]
+opt-level = 0
+debug = false
+split-debuginfo = "unpacked"
+
+# Selfdev profile - balanced for development
+[profile.selfdev]
+inherits = "dev"
+debug = false
+lto = false
+codegen-units = 16
+
+# Check profile - fastest possible for `cargo check`
+[profile.check]
+inherits = "dev"
+debug = false
+lto = false
+codegen-units = 64
