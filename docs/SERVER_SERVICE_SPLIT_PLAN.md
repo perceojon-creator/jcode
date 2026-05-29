@@ -18,7 +18,9 @@ See also:
 
 - [`SERVER_ARCHITECTURE.md`](./SERVER_ARCHITECTURE.md)
 - [`SWARM_ARCHITECTURE.md`](./SWARM_ARCHITECTURE.md)
-- [`UNIFIED_SELFDEV_SERVER_PLAN.md`](./UNIFIED_SELFDEV_SERVER_PLAN.md)
+
+The historical unified self-dev server rollout plan was removed after completion.
+The current baseline is already a shared server with session-local self-dev capability.
 
 ## Executive Summary
 

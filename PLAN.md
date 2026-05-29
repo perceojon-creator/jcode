@@ -92,7 +92,6 @@ Pendiente:
 - [ ] Implementar `memory_phase6_plan.md`
 - [ ] Modular architecture RFC
 - [ ] Multi-session client architecture
-- [ ] Unified self-dev server
 
 Analisis relacionados:
 - `.jcode/analysis/performance.md`
