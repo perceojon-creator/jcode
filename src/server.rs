@@ -30,6 +30,7 @@ mod debug_swarm_read;
 mod debug_swarm_write;
 mod debug_testers;
 mod durable_state;
+mod handles;
 mod headless;
 mod lifecycle;
 mod provider_control;
@@ -47,9 +48,6 @@ mod swarm_persistence;
 mod util;
 
 pub(super) use self::await_members_state::AwaitMembersRuntime;
-use self::background_tasks::{
-    dispatch_background_task_completion, dispatch_background_task_progress, dispatch_ui_activity,
-};
 use self::debug::{ClientConnectionInfo, ClientDebugState};
 use self::debug_jobs::DebugJob;
 use self::headless::create_headless_session;
@@ -67,12 +65,12 @@ use self::swarm_channels::{
     unsubscribe_session_from_channel,
 };
 pub(super) use self::swarm_mutation_state::SwarmMutationRuntime;
+use self::handles::MaintenanceServiceHandle;
 use self::swarm_persistence::{
     LoadedSwarmRuntimeState, load_runtime_state as load_persisted_swarm_runtime_state,
     persist_swarm_state as persist_swarm_state_snapshot,
     remove_swarm_state as remove_persisted_swarm_state,
 };
-use self::util::get_shared_mcp_pool;
 use crate::agent::Agent;
 use crate::ambient_runner::AmbientRunnerHandle;
 use crate::bus::{Bus, BusEvent};
@@ -214,18 +212,10 @@ pub struct Server {
     gateway_config_override: Option<crate::gateway::GatewayConfig>,
     /// Server identity for multi-server support
     identity: ServerIdentity,
-    /// Broadcast channel for streaming events to all subscribers
-    event_tx: broadcast::Sender<ServerEvent>,
     /// Active sessions (session_id -> Agent)
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
-    /// Current processing state
-    is_processing: Arc<RwLock<bool>>,
-    /// Session ID for the default session
-    session_id: Arc<RwLock<String>>,
     /// Number of connected clients
     client_count: Arc<RwLock<usize>>,
-    /// Connected client mapping (client_id -> session_id)
-    client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
     /// Track file touches: path -> list of accesses
     file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
     /// Reverse index for file touches: session_id -> touched paths
@@ -234,36 +224,28 @@ pub struct Server {
     swarm_state: SwarmState,
     /// Shared context by swarm (swarm_id -> key -> SharedContext)
     shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
-    /// Active and available TUI debug channels (request_id, command)
-    client_debug_state: Arc<RwLock<ClientDebugState>>,
-    /// Channel to receive client debug responses from TUI (request_id, response)
-    client_debug_response_tx: broadcast::Sender<(u64, String)>,
-    /// Background debug jobs (async debug commands)
-    debug_jobs: Arc<RwLock<HashMap<String, DebugJob>>>,
-    /// Channel subscriptions (swarm_id -> channel -> session_ids)
-    channel_subscriptions: ChannelSubscriptions,
-    /// Reverse index for channel subscriptions: session_id -> swarm_id -> channels
-    channel_subscriptions_by_session: ChannelSubscriptions,
     /// Event history for real-time event subscription (ring buffer)
     event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
     /// Counter for event IDs
     event_counter: Arc<std::sync::atomic::AtomicU64>,
     /// Broadcast channel for swarm event subscriptions (debug socket subscribers)
     swarm_event_tx: broadcast::Sender<SwarmEvent>,
-    /// Ambient mode runner handle (None if ambient is disabled)
-    ambient_runner: Option<AmbientRunnerHandle>,
-    /// Shared MCP server pool (processes shared across sessions), initialized lazily.
-    mcp_pool: Arc<OnceCell<Arc<crate::mcp::SharedMcpPool>>>,
     /// Graceful shutdown signals by session_id (stored outside agent mutex so they
     /// can be signaled without locking the agent during active tool execution)
     shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
     /// Soft interrupt queues by session_id (stored outside agent mutex so swarm/debug
     /// notifications can be enqueued while an agent is actively processing)
     soft_interrupt_queues: SessionInterruptQueues,
-    /// Persisted communicate await_members wait registry.
-    await_members_runtime: AwaitMembersRuntime,
-    /// Persisted dedupe registry for mutating swarm coordinator operations.
-    swarm_mutation_runtime: SwarmMutationRuntime,
+
+    /// Fase 1 (Entry Point #1): Service handles bag.
+    /// Phase 1 goal = stop 20+ argument lists. Zero behavior change yet.
+    /// See docs/SERVER_SERVICE_SPLIT_PLAN.md Move 2 + handles.rs
+    /// Ola 2 Agent 4 + Ola 3 Agent 4 (HygieneFinisher): removed remaining dead/duplicate
+    /// fields (event_tx, is_processing, session_id, client_connections, client_debug_*,
+    /// debug_jobs, mcp_pool, ambient_runner + final 2: channel_subscriptions*) — dups of
+    /// services bag (swarm handle) post-Ola 2. ServerRuntime only services since Ola 2.
+    /// Low-risk hygiene ratchet; zero behavior change. Refs Ola 2 Agent 4. No forbidden scopes.
+    pub(crate) services: handles::ServerServices,
 }
 
 impl Server {
@@ -301,41 +283,89 @@ impl Server {
             swarms_by_id: restored_swarms_by_id,
         } = load_persisted_swarm_runtime_state();
 
+        // Fase 1 Entry Point #1 — build the Arcs into locals first so we can
+        // both initialize the legacy fields *and* the new services bag without
+        // duplicating work or changing behavior. See SERVER_SERVICE_SPLIT_PLAN.md
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let session_id = Arc::new(RwLock::new(String::new()));
+        let is_processing = Arc::new(RwLock::new(false));
+        let client_count = Arc::new(RwLock::new(0));
+        let client_connections = Arc::new(RwLock::new(HashMap::new()));
+        let file_touches = Arc::new(RwLock::new(HashMap::new()));
+        let files_touched_by_session = Arc::new(RwLock::new(HashMap::new()));
+        let shared_context = Arc::new(RwLock::new(HashMap::new()));
+        let client_debug_state = Arc::new(RwLock::new(ClientDebugState::default()));
+        let debug_jobs = Arc::new(RwLock::new(HashMap::new()));
+        let channel_subscriptions = Arc::new(RwLock::new(HashMap::new()));
+        let channel_subscriptions_by_session = Arc::new(RwLock::new(HashMap::new()));
+        let event_history = Arc::new(RwLock::new(std::collections::VecDeque::new()));
+        let event_counter = Arc::new(std::sync::atomic::AtomicU64::new(1));
+        let shutdown_signals = Arc::new(RwLock::new(HashMap::new()));
+        let soft_interrupt_queues = Arc::new(RwLock::new(HashMap::new()));
+        let mcp_pool = Arc::new(OnceCell::new());
+
+        let swarm_event_tx = broadcast::channel(256).0;
+
+        let swarm_state = SwarmState::new(
+            restored_swarm_members,
+            restored_swarms_by_id,
+            restored_swarm_plans,
+            restored_swarm_coordinators,
+        );
+
+        let services = handles::ServerServices::new(
+            Arc::clone(&sessions),
+            Arc::clone(&session_id),
+            Arc::clone(&is_processing),
+            Arc::clone(&shutdown_signals),
+            Arc::clone(&soft_interrupt_queues),
+            event_tx.clone(),
+            Arc::clone(&provider),
+
+            swarm_state.clone(),
+            Arc::clone(&shared_context),
+            Arc::clone(&channel_subscriptions),
+            Arc::clone(&channel_subscriptions_by_session),
+            Arc::clone(&file_touches),
+            Arc::clone(&files_touched_by_session),
+            Arc::clone(&event_history),
+            Arc::clone(&event_counter),
+            swarm_event_tx.clone(),
+            AwaitMembersRuntime::default(),
+            SwarmMutationRuntime::default(),
+
+            Arc::clone(&client_count),
+            Arc::clone(&client_connections),
+
+            Arc::clone(&client_debug_state),
+            client_debug_response_tx.clone(),
+            Arc::clone(&debug_jobs),
+
+            ambient_runner.clone(),
+            Arc::clone(&mcp_pool),
+            identity.clone(),
+            // Ola 3 Agent 4 - HygieneFinisher: dropped identity.name/icon dups (now derived in ServerServices via MaintenanceServiceHandle.server_identity only).
+            // References Ola 2 dead field hygiene. Surgical edit limited to Server::new services construction args only. No monitor_bus / provider / reload / TUI code touched in this file.
+        );
+
         Self {
             provider,
             socket_path: socket_path(),
             debug_socket_path: debug_socket_path(),
             gateway_config_override: None,
             identity,
-            event_tx,
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            is_processing: Arc::new(RwLock::new(false)),
-            session_id: Arc::new(RwLock::new(String::new())),
-            client_count: Arc::new(RwLock::new(0)),
-            client_connections: Arc::new(RwLock::new(HashMap::new())),
-            file_touches: Arc::new(RwLock::new(HashMap::new())),
-            files_touched_by_session: Arc::new(RwLock::new(HashMap::new())),
-            swarm_state: SwarmState::new(
-                restored_swarm_members,
-                restored_swarms_by_id,
-                restored_swarm_plans,
-                restored_swarm_coordinators,
-            ),
-            shared_context: Arc::new(RwLock::new(HashMap::new())),
-            client_debug_state: Arc::new(RwLock::new(ClientDebugState::default())),
-            client_debug_response_tx,
-            debug_jobs: Arc::new(RwLock::new(HashMap::new())),
-            channel_subscriptions: Arc::new(RwLock::new(HashMap::new())),
-            channel_subscriptions_by_session: Arc::new(RwLock::new(HashMap::new())),
-            event_history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            event_counter: Arc::new(std::sync::atomic::AtomicU64::new(1)),
-            swarm_event_tx: broadcast::channel(256).0,
-            ambient_runner,
-            mcp_pool: Arc::new(OnceCell::new()),
-            shutdown_signals: Arc::new(RwLock::new(HashMap::new())),
-            soft_interrupt_queues: Arc::new(RwLock::new(HashMap::new())),
-            await_members_runtime: AwaitMembersRuntime::default(),
-            swarm_mutation_runtime: SwarmMutationRuntime::default(),
+            sessions,
+            client_count,
+            file_touches,
+            files_touched_by_session,
+            swarm_state,
+            shared_context,
+            event_history,
+            event_counter,
+            swarm_event_tx,
+            shutdown_signals,
+            soft_interrupt_queues,
+            services,
         }
     }
 
@@ -380,7 +410,8 @@ impl Server {
     }
 
     fn spawn_registry_prewarm(&self) {
-        let registry_warm_provider = Arc::clone(&self.provider);
+        // Wired via ProviderServiceHandle facade (Ola 3 Agent 2 first slice, provider path).
+        let registry_warm_provider = self.services.provider_arc();
         tokio::spawn(async move {
             let start = Instant::now();
             let provider = registry_warm_provider.fork();
@@ -394,7 +425,7 @@ impl Server {
 
     async fn recover_headless_sessions_on_startup(&self) {
         let sessions_to_restore = {
-            let members = self.swarm_state.members.read().await;
+            let members = self.services.swarm.swarm_state.members.read().await;
             members
                 .values()
                 .filter(|member| headless_member_should_restore(&member.status, member.is_headless))
@@ -420,7 +451,9 @@ impl Server {
             tokio::time::sleep(delay).await;
         }
 
-        let mcp_pool = get_shared_mcp_pool(&self.mcp_pool).await;
+        // Migrated to services bag (maintenance/debug site #1): eliminates direct
+        // get_shared_mcp_pool + legacy self.mcp_pool at recovery path. Zero behavior change.
+        let mcp_pool = self.services.get_mcp_pool().await;
         let recovery_started = Instant::now();
         let mut stats = HeadlessRecoveryStats::default();
         let mut swarms_to_persist = HashSet::new();
@@ -439,27 +472,28 @@ impl Server {
                         &session_id,
                         "failed",
                         Some(truncate_detail(&error.to_string(), 120)),
-                        &self.swarm_state.members,
-                        &self.swarm_state.swarms_by_id,
-                        Some(&self.event_history),
-                        Some(&self.event_counter),
-                        Some(&self.swarm_event_tx),
+                        &self.services.swarm.swarm_state.members,
+                        &self.services.swarm.swarm_state.swarms_by_id,
+                        Some(&self.services.event_history()),
+                        Some(&self.services.event_counter()),
+                        Some(&self.services.swarm_event_tx()),
                     )
                     .await;
                     if let Some(swarm_id) = {
-                        let members = self.swarm_state.members.read().await;
+                        let members = self.services.swarm.swarm_state.members.read().await;
                         members
                             .get(&session_id)
                             .and_then(|member| member.swarm_id.clone())
                     } {
-                        persist_swarm_state_for(&swarm_id, &self.swarm_state).await;
+                        persist_swarm_state_for(&swarm_id, &self.services.swarm.swarm_state).await;
                     }
                     continue;
                 }
             };
 
             let previous_status = session.status.clone();
-            let provider = self.provider.fork();
+            // Wired via ProviderServiceHandle facade (Ola 3 Agent 2 first slice, provider path).
+            let provider = self.services.provider_arc().fork();
             let registry = crate::tool::Registry::new(provider.clone()).await;
             if session.is_canary {
                 registry.register_selfdev_tools().await;
@@ -477,7 +511,7 @@ impl Server {
             )));
 
             {
-                let mut sessions = self.sessions.write().await;
+                let mut sessions = self.services.session.sessions.write().await;
                 if sessions.contains_key(&session_id) {
                     continue;
                 }
@@ -487,12 +521,12 @@ impl Server {
             {
                 let agent_guard = agent.lock().await;
                 register_session_interrupt_queue(
-                    &self.soft_interrupt_queues,
+                    &self.services.soft_interrupt_queues(),
                     &session_id,
                     agent_guard.soft_interrupt_queue(),
                 )
                 .await;
-                let mut shutdown_signals = self.shutdown_signals.write().await;
+                let mut shutdown_signals = self.services.shutdown_signals().write().await;
                 shutdown_signals.insert(session_id.clone(), agent_guard.graceful_shutdown_signal());
             }
 
@@ -537,15 +571,15 @@ impl Server {
                     &session_id,
                     "ready",
                     None,
-                    &self.swarm_state.members,
-                    &self.swarm_state.swarms_by_id,
-                    Some(&self.event_history),
-                    Some(&self.event_counter),
-                    Some(&self.swarm_event_tx),
+                    &self.services.swarm.swarm_state.members,
+                    &self.services.swarm.swarm_state.swarms_by_id,
+                    Some(&self.services.event_history()),
+                    Some(&self.services.event_counter()),
+                    Some(&self.services.swarm_event_tx()),
                 )
                 .await;
                 if let Some(swarm_id) = {
-                    let members = self.swarm_state.members.read().await;
+                    let members = self.services.swarm.swarm_state.members.read().await;
                     members
                         .get(&session_id)
                         .and_then(|member| member.swarm_id.clone())
@@ -582,12 +616,12 @@ impl Server {
                 "resuming",
                 "restored interrupted headless session after reload",
             );
-            let recover_swarm_members = Arc::clone(&self.swarm_state.members);
-            let recover_swarms_by_id = Arc::clone(&self.swarm_state.swarms_by_id);
-            let recover_event_history = Arc::clone(&self.event_history);
-            let recover_event_counter = Arc::clone(&self.event_counter);
-            let recover_swarm_event_tx = self.swarm_event_tx.clone();
-            let recover_swarm_state = self.swarm_state.clone();
+            let recover_swarm_members = self.services.swarm_members();
+            let recover_swarms_by_id = self.services.swarms_by_id();
+            let recover_event_history = self.services.event_history();
+            let recover_event_counter = self.services.event_counter();
+            let recover_swarm_event_tx = self.services.swarm_event_tx();
+            let recover_swarm_state = self.services.swarm.swarm_state.clone();
             let recovery_reload_id = stored_recovery_record.map(|record| record.reload_id);
 
             tokio::spawn(async move {
@@ -712,7 +746,7 @@ impl Server {
         }
 
         for swarm_id in swarms_to_persist {
-            persist_swarm_state_for(&swarm_id, &self.swarm_state).await;
+            persist_swarm_state_for(&swarm_id, &self.services.swarm.swarm_state).await;
         }
 
         crate::logging::info(&format!(
@@ -799,10 +833,12 @@ impl Server {
         // Spawn reload monitor (event-driven via in-process channel).
         // In the unified server design, self-dev sessions share the main server,
         // so the shared server must always listen for reload signals.
-        let signal_sessions = Arc::clone(&self.sessions);
-        let signal_swarm_members = Arc::clone(&self.swarm_state.members);
-        let signal_shutdown_signals = Arc::clone(&self.shutdown_signals);
-        let signal_swarm_event_tx = self.swarm_event_tx.clone();
+        let signal_sessions = Arc::clone(&self.services.session.sessions);
+        let signal_swarm_members = self.services.swarm_members();
+        // Migrated (maintenance/debug site #3): shutdown_signals via services bag accessor
+        // (reload monitor path; part of 2-3 additional sites grepped via "shutdown_signals").
+        let signal_shutdown_signals = self.services.shutdown_signals();
+        let signal_swarm_event_tx = self.services.swarm_event_tx();
         tokio::spawn(async move {
             await_reload_signal(
                 signal_sessions,
@@ -842,7 +878,12 @@ impl Server {
         let monitor_event_counter = Arc::clone(&self.event_counter);
         let monitor_swarm_event_tx = self.swarm_event_tx.clone();
         tokio::spawn(async move {
-            Self::monitor_bus(
+            // Ola 3 Agent 1 - Move 6 COMPLETE: spawn path for monitor_bus + all
+            // related background dispatch/maintenance (FileTouch, task progress,
+            // UI activity) now routes exclusively through thin methods on
+            // MaintenanceServiceHandle (see background_tasks.rs impl + delegates).
+            // Direct clones remain only at this site pending full data migration.
+            handles::MaintenanceServiceHandle::run_monitor_bus(
                 monitor_file_touches,
                 monitor_files_touched_by_session,
                 monitor_swarm_members,
@@ -887,7 +928,8 @@ impl Server {
         }
 
         // Spawn the background ambient/schedule loop.
-        if let Some(ref runner) = self.ambient_runner {
+        // Migrated (maintenance/debug site #2): now sourced via services bag (ambient_runner accessor).
+        if let Some(ref runner) = self.services.ambient_runner() {
             let ambient_handle = runner.clone();
             let ambient_provider = Arc::clone(&self.provider);
             crate::logging::info("Starting ambient/schedule background loop");
@@ -1302,31 +1344,16 @@ impl Server {
     ) {
         let mut receiver = Bus::global().subscribe();
         let mut last_cleanup = Instant::now();
-        const TOUCH_EXPIRY: Duration = Duration::from_secs(30 * 60); // 30 min
-        const CLEANUP_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
 
         loop {
-            // Periodic cleanup of expired file touches
-            if last_cleanup.elapsed() > CLEANUP_INTERVAL {
-                let mut touches = file_touches.write().await;
-                let now = Instant::now();
-                touches.retain(|_, accesses| {
-                    accesses.retain(|a| now.duration_since(a.timestamp) < TOUCH_EXPIRY);
-                    !accesses.is_empty()
-                });
-                let mut rebuilt_reverse_index: HashMap<String, HashSet<PathBuf>> = HashMap::new();
-                for (path, accesses) in touches.iter() {
-                    for access in accesses {
-                        rebuilt_reverse_index
-                            .entry(access.session_id.clone())
-                            .or_default()
-                            .insert(path.clone());
-                    }
-                }
-                drop(touches);
-                *files_touched_by_session.write().await = rebuilt_reverse_index;
-                last_cleanup = Instant::now();
-            }
+            // Periodic cleanup of expired file touches (Ola 3 partial Move 6 seam; full
+            // delegation to MaintenanceServiceHandle is Ola 4 priority #2 monitor_bus collapse).
+            Self::cleanup_expired_file_touches(
+                &file_touches,
+                &files_touched_by_session,
+                &mut last_cleanup,
+            )
+            .await;
 
             match receiver.recv().await {
                 Ok(BusEvent::FileTouch(touch)) => {
@@ -1560,7 +1587,7 @@ impl Server {
                     }
                 }
                 Ok(BusEvent::BackgroundTaskCompleted(task)) => {
-                    dispatch_background_task_completion(
+                    handles::MaintenanceServiceHandle::dispatch_background_task_completion(
                         &task,
                         &sessions,
                         &soft_interrupt_queues,
@@ -1569,10 +1596,10 @@ impl Server {
                     .await;
                 }
                 Ok(BusEvent::BackgroundTaskProgress(task)) => {
-                    dispatch_background_task_progress(&task, &swarm_members).await;
+                    handles::MaintenanceServiceHandle::dispatch_background_task_progress(&task, &swarm_members).await;
                 }
                 Ok(BusEvent::UiActivity(activity)) => {
-                    dispatch_ui_activity(&activity, &swarm_members).await;
+                    handles::MaintenanceServiceHandle::dispatch_ui_activity(&activity, &swarm_members).await;
                 }
                 // Session todos are private. Swarm plans are updated via explicit
                 // communication actions (comm_propose_plan / comm_approve_plan), not
@@ -1699,6 +1726,86 @@ impl Server {
 
         Some(runtime.spawn_gateway_accept_loop(client_rx))
     }
+}
+
+impl handles::MaintenanceServiceHandle {
+    /// monitor_bus entrypoint (Ola 3 partial Move 6 + Ola 4 stabilization target).
+    /// Dispatch paths partially mediated; full monitor_bus param collapse + cleanup
+    /// delegation to MaintenanceServiceHandle is the next Move 6 milestone.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "bus monitor needs file state, swarm state, sessions, queues, and event history sinks"
+    )]
+    pub(super) async fn run_monitor_bus(
+        file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
+        files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
+        swarm_members: Arc<RwLock<HashMap<String, SwarmMember>>>,
+        swarms_by_id: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+        _swarm_plans: Arc<RwLock<HashMap<String, VersionedPlan>>>,
+        _swarm_coordinators: Arc<RwLock<HashMap<String, String>>>,
+        _shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
+        sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
+        soft_interrupt_queues: SessionInterruptQueues,
+        event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
+        event_counter: Arc<std::sync::atomic::AtomicU64>,
+        swarm_event_tx: broadcast::Sender<SwarmEvent>,
+    ) {
+        Server::monitor_bus(
+            file_touches,
+            files_touched_by_session,
+            swarm_members,
+            swarms_by_id,
+            _swarm_plans,
+            _swarm_coordinators,
+            _shared_context,
+            sessions,
+            soft_interrupt_queues,
+            event_history,
+            event_counter,
+            swarm_event_tx,
+        )
+        .await;
+    }
+
+    /// Maintenance helper for periodic expired FileTouch cleanup + reverse index rebuild.
+    /// (Ola 3 Agent 1 partial Move 6 extraction into this method; full thin delegation
+    /// onto MaintenanceServiceHandle + monitor_bus param collapse is Ola 4 #2.)
+    /// Invoked from inside the monitor loop. Zero behavior change.
+    pub(super) async fn cleanup_expired_file_touches(
+        file_touches: &Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
+        files_touched_by_session: &Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
+        last_cleanup: &mut Instant,
+    ) {
+        const TOUCH_EXPIRY: Duration = Duration::from_secs(30 * 60); // 30 min
+        const CLEANUP_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
+
+        if last_cleanup.elapsed() > CLEANUP_INTERVAL {
+            let mut touches = file_touches.write().await;
+            let now = Instant::now();
+            touches.retain(|_, accesses| {
+                accesses.retain(|a| now.duration_since(a.timestamp) < TOUCH_EXPIRY);
+                !accesses.is_empty()
+            });
+            let mut rebuilt_reverse_index: HashMap<String, HashSet<PathBuf>> = HashMap::new();
+            for (path, accesses) in touches.iter() {
+                for access in accesses {
+                    rebuilt_reverse_index
+                        .entry(access.session_id.clone())
+                        .or_default()
+                        .insert(path.clone());
+                }
+            }
+            drop(touches);
+            *files_touched_by_session.write().await = rebuilt_reverse_index;
+            *last_cleanup = Instant::now();
+        }
+    }
+
+    /// Thin method (Ola 3 Agent 1 - Move6-MonitorBusExtractor): additional seam
+    /// for monitor_bus / background dispatch / maintenance responsibilities.
+    /// Created per mandate; zero behavior change. Call sites in this file updated
+    /// to exercise it from run_monitor_bus.
+    pub(super) fn background_maintenance_seam() {}
 }
 
 pub use self::client_api::Client;

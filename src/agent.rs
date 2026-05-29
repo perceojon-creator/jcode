@@ -8,7 +8,7 @@ mod prompting;
 mod provider;
 mod response_recovery;
 mod status;
-mod streaming;
+pub(crate) mod streaming;
 mod tools;
 mod turn_execution;
 mod turn_loops;

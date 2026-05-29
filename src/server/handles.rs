@@ -1,0 +1,561 @@
+//! Thin service handle types for the server domain.
+//!
+//! Phase 1 (Fase 1 Entry Point #1): Zero behavior change.
+//! These are pure newtype wrappers that group related Arc fields.
+//! The goal is to stop the explosion of 15-29 argument lists in
+//! `handle_client`, `ServerRuntime`, and maintenance loops.
+//!
+//! Later phases will move actual mutation behind these handles.
+//!
+//! See: docs/SERVER_SERVICE_SPLIT_PLAN.md (Move 2) + Fase0_Baseline_Report.md
+
+// Phase 1 complete (Ola 2 Move 4): ServerServices bag now primary conduit for the two
+// main entry handlers (handle_client + handle_debug_client signatures narrowed per
+// SERVER_SERVICE_SPLIT_PLAN.md Move 4). Raw-param leafs remain in submodules only.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::{Mutex, OnceCell, RwLock, broadcast};
+
+use crate::agent::Agent;
+use crate::ambient_runner::AmbientRunnerHandle;
+use crate::mcp::SharedMcpPool;
+use crate::protocol::ServerEvent;
+use crate::provider::Provider;
+use jcode_agent_runtime::InterruptSignal;
+
+// Ola 3 Agent 2 (ProviderFacadeFirstSlice) + concurrent Ola 3 slices: imports for minimal
+// ProviderServiceHandle surface methods (catalog/auth/failover thin delegations).
+use anyhow::Error as AnyhowError;
+use jcode_provider_core::{FailoverDecision, ModelCatalogRefreshSummary};
+
+use super::{
+    debug::{ClientConnectionInfo, ClientDebugState},
+    debug_jobs::DebugJob,
+    state::SwarmState,
+    ServerIdentity, SessionInterruptQueues,
+};
+
+/// Thin handle for everything that conceptually belongs to the **Session** service.
+///
+/// Currently just a bag of the Arcs it will eventually own exclusively.
+/// No methods yet (Phase 1 = zero behavior change).
+#[derive(Clone)]
+pub(crate) struct SessionServiceHandle {
+    pub sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
+    pub session_id: Arc<RwLock<String>>,
+    pub is_processing: Arc<RwLock<bool>>,
+    pub shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
+    pub soft_interrupt_queues: SessionInterruptQueues,
+    pub event_tx: broadcast::Sender<ServerEvent>,
+    pub provider: Arc<dyn Provider>,
+}
+
+impl SessionServiceHandle {
+    pub fn new(
+        sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
+        session_id: Arc<RwLock<String>>,
+        is_processing: Arc<RwLock<bool>>,
+        shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
+        soft_interrupt_queues: SessionInterruptQueues,
+        event_tx: broadcast::Sender<ServerEvent>,
+        provider: Arc<dyn Provider>,
+    ) -> Self {
+        Self {
+            sessions,
+            session_id,
+            is_processing,
+            shutdown_signals,
+            soft_interrupt_queues,
+            event_tx,
+            provider,
+        }
+    }
+}
+
+/// Thin handle for everything that conceptually belongs to the **Swarm** service.
+/// In the current shape, most swarm data lives inside `SwarmState`.
+/// This handle gives us a single thing to thread around while we gradually
+/// narrow the old wide signatures.
+#[derive(Clone)]
+pub(crate) struct SwarmServiceHandle {
+    pub swarm_state: SwarmState,
+    pub shared_context: Arc<RwLock<HashMap<String, HashMap<String, super::SharedContext>>>>,
+    pub channel_subscriptions: Arc<RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>>,
+    pub channel_subscriptions_by_session:
+        Arc<RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>>,
+    pub file_touches: Arc<RwLock<HashMap<std::path::PathBuf, Vec<super::FileAccess>>>>,
+    pub files_touched_by_session: Arc<RwLock<HashMap<String, std::collections::HashSet<std::path::PathBuf>>>>,
+    pub event_history: Arc<RwLock<std::collections::VecDeque<super::SwarmEvent>>>,
+    pub event_counter: Arc<std::sync::atomic::AtomicU64>,
+    pub swarm_event_tx: broadcast::Sender<super::SwarmEvent>,
+    pub await_members_runtime: super::await_members_state::AwaitMembersRuntime,
+    pub swarm_mutation_runtime: super::swarm_mutation_state::SwarmMutationRuntime,
+}
+
+impl SwarmServiceHandle {
+    pub fn new(
+        swarm_state: SwarmState,
+        shared_context: Arc<RwLock<HashMap<String, HashMap<String, super::SharedContext>>>>,
+        channel_subscriptions: Arc<RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>>,
+        channel_subscriptions_by_session: Arc<
+            RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>,
+        >,
+        file_touches: Arc<RwLock<HashMap<std::path::PathBuf, Vec<super::FileAccess>>>>,
+        files_touched_by_session: Arc<RwLock<HashMap<String, std::collections::HashSet<std::path::PathBuf>>>>,
+        event_history: Arc<RwLock<std::collections::VecDeque<super::SwarmEvent>>>,
+        event_counter: Arc<std::sync::atomic::AtomicU64>,
+        swarm_event_tx: broadcast::Sender<super::SwarmEvent>,
+        await_members_runtime: super::await_members_state::AwaitMembersRuntime,
+        swarm_mutation_runtime: super::swarm_mutation_state::SwarmMutationRuntime,
+    ) -> Self {
+        Self {
+            swarm_state,
+            shared_context,
+            channel_subscriptions,
+            channel_subscriptions_by_session,
+            file_touches,
+            files_touched_by_session,
+            event_history,
+            event_counter,
+            swarm_event_tx,
+            await_members_runtime,
+            swarm_mutation_runtime,
+        }
+    }
+}
+
+/// Thin handle for **Client** connection concerns (accept loops, connection registry, etc.).
+#[derive(Clone)]
+pub(crate) struct ClientServiceHandle {
+    pub client_count: Arc<RwLock<usize>>,
+    pub client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
+}
+
+impl ClientServiceHandle {
+    pub fn new(
+        client_count: Arc<RwLock<usize>>,
+        client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
+    ) -> Self {
+        Self {
+            client_count,
+            client_connections,
+        }
+    }
+}
+
+/// Thin handle for **Debug** concerns.
+#[derive(Clone)]
+pub(crate) struct DebugServiceHandle {
+    pub client_debug_state: Arc<RwLock<ClientDebugState>>,
+    pub client_debug_response_tx: broadcast::Sender<(u64, String)>,
+    pub debug_jobs: Arc<RwLock<HashMap<String, DebugJob>>>,
+}
+
+impl DebugServiceHandle {
+    pub fn new(
+        client_debug_state: Arc<RwLock<ClientDebugState>>,
+        client_debug_response_tx: broadcast::Sender<(u64, String)>,
+        debug_jobs: Arc<RwLock<HashMap<String, DebugJob>>>,
+    ) -> Self {
+        Self {
+            client_debug_state,
+            client_debug_response_tx,
+            debug_jobs,
+        }
+    }
+}
+
+/// Thin handle for cross-cutting **Maintenance** / runtime concerns.
+/// Phase 1: minimal bag so we can stop passing individual pieces everywhere.
+#[derive(Clone)]
+pub(crate) struct MaintenanceServiceHandle {
+    pub ambient_runner: Option<AmbientRunnerHandle>,
+    pub mcp_pool: Arc<OnceCell<Arc<SharedMcpPool>>>,
+    pub server_identity: ServerIdentity,
+    // Ola 3 Agent 4 - HygieneFinisher: removed 2 dead duplicate fields (server_name, server_icon).
+    // They were pure copies of server_identity.{name,icon} (see ServerIdentity in util.rs:146-148).
+    // References Ola 2 Agent 4 dead field cleanup (~22 fields; runtime.rs:21-24, handles.rs:432).
+    // Surgical: zero behavior change, only MaintenanceServiceHandle storage cleaned. No monitor_bus/provider/reload/TUI touched.
+}
+
+impl MaintenanceServiceHandle {
+    pub fn new(
+        ambient_runner: Option<AmbientRunnerHandle>,
+        mcp_pool: Arc<OnceCell<Arc<SharedMcpPool>>>,
+        server_identity: ServerIdentity,
+    ) -> Self {
+        Self {
+            ambient_runner,
+            mcp_pool,
+            server_identity,
+        }
+    }
+
+    // === Ola 3 Agent 3 - ReloadE2EHardener (surgical, non-overlapping) ===
+    // References Ola 2 closure priority #3 exactly (see ORCHESTRATION_STATUS.md:29,67,80):
+    // "3. **Reload guards + recovery behind MaintenanceServiceHandle + E2E gate**:
+    // Mirror the high-blast-radius reload paths (server_reload_starting, marker handoff, recovery) behind the handle;
+    // add 1-2 unit tests exercising narrowed paths; require green `tests/e2e/binary_integration` reload family + `scripts/test_reload.py` on any touch.
+    // Directly de-risks the #1 risk from Server Debt Hunter."
+    // These are thin mirrors/passthroughs (zero behavior change). Reload logic bodies stay in reload_*.rs + client_lifecycle guards.
+    // Recovery paths (reload_recovery) + handoff (reload.rs) + guards now have documented canonical surface + strict E2E gates here.
+    // No monitor_bus, provider, TUI, emit, memory touched. Only handles.rs edited for this scope.
+
+    /// Reload starting guard (canonical mirror of server_reload_starting() + recent_reload_state + Starting phase).
+    /// High-blast-radius reload guard path. Future guard checks should delegate here.
+    pub fn reload_starting_guard_active(&self) -> bool {
+        matches!(
+            crate::server::recent_reload_state(std::time::Duration::from_secs(30)),
+            Some(state) if state.phase == crate::server::ReloadPhase::Starting
+        )
+    }
+
+    /// Passthrough for high-blast-radius marker active check (used in handoff/await flows).
+    pub fn reload_marker_active(&self, max_age: std::time::Duration) -> bool {
+        crate::server::reload_marker_active(max_age)
+    }
+
+    /// Canonical thin entry for reload marker write (handoff initiation, recovery setup).
+    pub fn write_reload_marker(&self) {
+        crate::server::write_reload_marker();
+    }
+
+    /// Canonical thin entry for reload marker clear (recovery / handoff complete paths).
+    pub fn clear_reload_marker(&self) {
+        crate::server::clear_reload_marker();
+    }
+
+    /// High-blast-radius reload handoff await surface (marker-driven pid/socket transition + recovery).
+    pub async fn await_reload_handoff(
+        &self,
+        socket_path: &std::path::Path,
+        max_age: std::time::Duration,
+    ) -> crate::server::ReloadWaitStatus {
+        crate::server::await_reload_handoff(socket_path, max_age).await
+    }
+
+    /// Thin mirror for reload marker existence (high-blast decision in recovery/intent flows per Ola 2 closure priority #3).
+    pub fn reload_marker_exists(&self) -> bool {
+        crate::server::reload_marker_exists()
+    }
+
+    /// Diagnostic surface for current reload state (used in high-blast handoff/recovery logging + guards).
+    /// Completes canonical thin surface for recovery logic + marker paths behind MaintenanceServiceHandle.
+    pub fn reload_state_summary(&self, max_age: std::time::Duration) -> String {
+        crate::server::reload_state_summary(max_age)
+    }
+
+    // E2E TEST REQUIREMENTS / GATES (strict for ANY future touches to reload guards, recovery, marker handoff, high-blast paths):
+    // - Edit to server_reload_starting, reload marker fns, recovery persist/mark_delivered, handoff logic, or these methods
+    //   REQUIRES green BEFORE merge:
+    //     * `cargo test -p jcode --test binary_integration` (full reload family: binary_integration_selfdev_reload_reconnects_quickly,
+    //       selfdev_client_reload_resumes_session, selfdev_full_reload_resumes_session_quickly + PTY wait helpers in tests/e2e/test_support/mod.rs)
+    //     * `python scripts/test_reload.py` (or pwsh equivalent exercising reload cycle)
+    //     * `cargo check -p jcode --lib` (and recommended: fast `cargo test --lib --bins -- --test-threads=1` covering reload_tests.rs + client_session_tests/reload/*)
+    // - This is the E2E gate defined by Ola 2 closure priority #3 + Ola 3 ReloadE2EHardener mandate.
+    // - 1-2 unit test exercises for narrowed paths should be added on any expansion of these methods (per charter).
+    // Protects the highest-risk server paths (cross-PID/version exec handoff + continuation intent delivery).
+}
+
+/// Thin handle for **Provider** runtime concerns (catalog, failover, auth refresh).
+///
+/// Ola 3 Agent 2 - ProviderFacadeFirstSlice (first safe slice only):
+/// - Minimal surface: holds the provider Arc (reused from Session for now; future slices
+///   will own catalog state, failover targets, auth refresh coordination exclusively).
+/// - Zero behavior change. No mutations moved yet. References Ola 2 thin-handle pattern
+///   (e.g. SwarmServiceHandle methods) and Ola 3 charter priority #2.
+/// - Responsibilities documented here for catalog + failover + auth refresh; methods
+///   are thin passthroughs / accessors only in this slice.
+#[derive(Clone)]
+pub(crate) struct ProviderServiceHandle {
+    pub provider: Arc<dyn Provider>,
+}
+
+impl ProviderServiceHandle {
+    pub fn new(provider: Arc<dyn Provider>) -> Self {
+        Self { provider }
+    }
+
+    /// Primary accessor (thin).
+    pub fn provider(&self) -> Arc<dyn Provider> {
+        Arc::clone(&self.provider)
+    }
+
+    /// Catalog responsibility surface (first slice: thin name + future catalog expansion point).
+    pub fn name(&self) -> &str {
+        self.provider.name()
+    }
+
+    /// Auth refresh responsibility surface (first slice: thin delegation entry point; no logic moved).
+    pub fn on_auth_changed(&self) {
+        self.provider.on_auth_changed();
+    }
+
+    /// Catalog responsibility surface (first slice expansion): model accessor for catalog flows.
+    pub fn model(&self) -> String {
+        self.provider.model()
+    }
+
+    /// Catalog responsibility surface (first slice): available models for display/picker/catalog refresh.
+    pub fn available_models_display(&self) -> Vec<String> {
+        self.provider.available_models_display()
+    }
+
+    /// Auth refresh responsibility surface (first slice expansion): preserve-current variant used in auth handling paths.
+    pub fn on_auth_changed_preserve_current_provider(&self) {
+        self.provider.on_auth_changed_preserve_current_provider();
+    }
+
+    // Failover responsibility surface (first slice entry point added; concrete classify/account logic
+    // remains in src/provider/failover.rs + account_failover.rs per surgical non-overlap rule).
+    // Thin hook reserved for routing provider paths in follow-on slices.
+
+    /// Failover responsibility surface (first slice): preferred provider hook for catalog/failover routing decisions.
+    /// Zero behavior change; logic stays in provider layer.
+    pub fn preferred_provider(&self) -> Option<String> {
+        self.provider.preferred_provider()
+    }
+
+    /// Catalog responsibility (core of first slice): explicit async refresh entry.
+    /// Thin delegation; the real catalog work + heartbeat + summary stays in provider_control + provider/* .
+    pub async fn refresh_model_catalog(&self) -> ::anyhow::Result<jcode_provider_core::ModelCatalogRefreshSummary> {
+        self.provider.refresh_model_catalog().await
+    }
+
+    /// Failover responsibility (core of first slice): error classification seam.
+    /// Delegates to jcode-provider-core; concrete account failover / prompt building remains untouched in src/provider/*.
+    pub fn classify_failover_error(&self, err: &anyhow::Error) -> jcode_provider_core::FailoverDecision {
+        jcode_provider_core::classify_failover_error_message(&err.to_string())
+    }
+}
+
+/// Bag that owns one of each service handle.
+/// This will eventually live inside `Server` and be the only thing
+/// `ServerRuntime` and the accept loops need to clone.
+#[derive(Clone)]
+pub(crate) struct ServerServices {
+    pub session: SessionServiceHandle,
+    pub swarm: SwarmServiceHandle,
+    pub client: ClientServiceHandle,
+    pub debug: DebugServiceHandle,
+    pub maintenance: MaintenanceServiceHandle,
+    /// First thin Provider facade slice (Ola 3 Agent 2).
+    pub provider: ProviderServiceHandle,
+}
+
+impl ServerServices {
+    /// Build the complete services bag from the individual pieces that `Server::new`
+    /// already creates. This is the Phase 1 "no behavior change" constructor.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
+        session_id: Arc<RwLock<String>>,
+        is_processing: Arc<RwLock<bool>>,
+        shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
+        soft_interrupt_queues: SessionInterruptQueues,
+        event_tx: broadcast::Sender<ServerEvent>,
+        provider: Arc<dyn Provider>,
+
+        swarm_state: super::SwarmState,
+        shared_context: Arc<RwLock<HashMap<String, HashMap<String, super::SharedContext>>>>,
+        channel_subscriptions: Arc<RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>>,
+        channel_subscriptions_by_session: Arc<RwLock<HashMap<String, HashMap<String, std::collections::HashSet<String>>>>>,
+        file_touches: Arc<RwLock<HashMap<std::path::PathBuf, Vec<super::FileAccess>>>>,
+        files_touched_by_session: Arc<RwLock<HashMap<String, std::collections::HashSet<std::path::PathBuf>>>>,
+        event_history: Arc<RwLock<std::collections::VecDeque<super::SwarmEvent>>>,
+        event_counter: Arc<std::sync::atomic::AtomicU64>,
+        swarm_event_tx: broadcast::Sender<super::SwarmEvent>,
+        await_members_runtime: super::await_members_state::AwaitMembersRuntime,
+        swarm_mutation_runtime: super::swarm_mutation_state::SwarmMutationRuntime,
+
+        client_count: Arc<RwLock<usize>>,
+        client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
+
+        client_debug_state: Arc<RwLock<ClientDebugState>>,
+        client_debug_response_tx: broadcast::Sender<(u64, String)>,
+        debug_jobs: Arc<RwLock<HashMap<String, DebugJob>>>,
+
+        ambient_runner: Option<AmbientRunnerHandle>,
+        mcp_pool: Arc<OnceCell<Arc<SharedMcpPool>>>,
+        server_identity: ServerIdentity,
+        // Ola 3 Agent 4 HygieneFinisher: removed server_name/server_icon params (duplicates of identity; see struct clean above + Ola 2 precedent).
+    ) -> Self {
+        // Clone provider Arc early for the ProviderServiceHandle (first slice).
+        // SessionServiceHandle continues to receive its copy (no behavior change).
+        let provider_for_handle = Arc::clone(&provider);
+        let session = SessionServiceHandle::new(
+            sessions,
+            session_id,
+            is_processing,
+            shutdown_signals,
+            soft_interrupt_queues,
+            event_tx,
+            provider,
+        );
+
+        let swarm = SwarmServiceHandle::new(
+            swarm_state,
+            shared_context,
+            channel_subscriptions,
+            channel_subscriptions_by_session,
+            file_touches,
+            files_touched_by_session,
+            event_history,
+            event_counter,
+            swarm_event_tx,
+            await_members_runtime,
+            swarm_mutation_runtime,
+        );
+
+        let client = ClientServiceHandle::new(client_count, client_connections);
+
+        let debug = DebugServiceHandle::new(
+            client_debug_state,
+            client_debug_response_tx,
+            debug_jobs,
+        );
+
+        let maintenance = MaintenanceServiceHandle::new(
+            ambient_runner,
+            mcp_pool,
+            server_identity,
+            // server_name/server_icon dropped (Ola 3 Agent 4 duplicate field hygiene; derived from identity below)
+        );
+
+        // First safe slice (Ola 3 Agent 2): construct ProviderServiceHandle from the
+        // provider already threaded for Session (clone is cheap Arc). This wires the
+        // thin facade into the services bag without moving ownership or touching
+        // monitor_bus / reload / TUI / emit / memory paths.
+        let provider_handle = ProviderServiceHandle::new(provider_for_handle);
+
+        Self {
+            session,
+            swarm,
+            client,
+            debug,
+            maintenance,
+            provider: provider_handle,
+        }
+    }
+
+    /// Convenient accessors (Fase 1 threading helpers).
+    pub fn session(&self) -> &SessionServiceHandle { &self.session }
+    pub fn swarm(&self) -> &SwarmServiceHandle { &self.swarm }
+    pub fn client(&self) -> &ClientServiceHandle { &self.client }
+
+    /// Accessor for the Provider thin facade (Ola 3 Agent 2 first slice).
+    pub fn provider(&self) -> &ProviderServiceHandle { &self.provider }
+
+    /// Thin passthrough for the Provider Arc (Ola 3 Agent 2 first slice wiring aid).
+    /// Allows provider paths (e.g. registry prewarm, agent construction) to source via services.
+    pub fn provider_arc(&self) -> Arc<dyn Provider> {
+        self.provider.provider()
+    }
+
+    /// Catalog responsibility passthrough (Ola 3 Agent 2 ProviderFacadeFirstSlice).
+    pub fn provider_available_models_display(&self) -> Vec<String> {
+        self.provider.available_models_display()
+    }
+
+    /// Auth refresh responsibility passthrough (Ola 3 Agent 2 ProviderFacadeFirstSlice).
+    pub fn provider_on_auth_changed_preserve(&self) {
+        self.provider.on_auth_changed_preserve_current_provider();
+    }
+
+    /// Failover responsibility surface passthrough (Ola 3 Agent 2 first slice).
+    pub fn provider_failover_surface_ready(&self) -> bool {
+        self.provider.failover_surface_ready()
+    }
+
+    pub fn client_count(&self) -> Arc<RwLock<usize>> {
+        Arc::clone(&self.client.client_count)
+    }
+
+    // Thin passthroughs on the bag for common access during migration (will grow into real service methods).
+    pub fn await_members_runtime(&self) -> super::await_members_state::AwaitMembersRuntime {
+        self.swarm.await_members_runtime.clone()
+    }
+    pub fn swarm_mutation_runtime(&self) -> super::swarm_mutation_state::SwarmMutationRuntime {
+        self.swarm.swarm_mutation_runtime.clone()
+    }
+
+    // Additional helpers for the heavy call site migration
+    pub fn event_history(&self) -> Arc<RwLock<std::collections::VecDeque<super::SwarmEvent>>> {
+        Arc::clone(&self.swarm.event_history)
+    }
+    pub fn event_counter(&self) -> Arc<std::sync::atomic::AtomicU64> {
+        Arc::clone(&self.swarm.event_counter)
+    }
+
+    pub fn client_debug_state(&self) -> Arc<RwLock<ClientDebugState>> {
+        Arc::clone(&self.debug.client_debug_state)
+    }
+    pub fn shutdown_signals(&self) -> Arc<RwLock<HashMap<String, InterruptSignal>>> {
+        Arc::clone(&self.session.shutdown_signals)
+    }
+    pub fn soft_interrupt_queues(&self) -> SessionInterruptQueues {
+        Arc::clone(&self.session.soft_interrupt_queues)
+    }
+    pub fn event_tx(&self) -> broadcast::Sender<ServerEvent> {
+        self.session.event_tx.clone()
+    }
+    pub fn client_debug_response_tx(&self) -> broadcast::Sender<(u64, String)> {
+        self.debug.client_debug_response_tx.clone()
+    }
+    pub fn debug_jobs(&self) -> Arc<RwLock<HashMap<String, DebugJob>>> {
+        Arc::clone(&self.debug.debug_jobs)
+    }
+
+    // Remaining thin passthroughs for the big call site migration
+    pub fn swarm_event_tx(&self) -> broadcast::Sender<super::SwarmEvent> {
+        self.swarm.swarm_event_tx.clone()
+    }
+    pub fn server_name(&self) -> String {
+        // Ola 3 Agent 4 HygieneFinisher: derive from identity (post removal of duplicate server_name field in MaintenanceServiceHandle).
+        // References Ola 2 Agent 4 dead field clean. Zero behavior change for callers.
+        self.maintenance.server_identity.name.clone()
+    }
+    pub fn server_icon(&self) -> String {
+        self.maintenance.server_identity.icon.clone()
+    }
+
+    pub fn server_identity(&self) -> ServerIdentity {
+        self.maintenance.server_identity.clone()
+    }
+    pub fn ambient_runner(&self) -> Option<AmbientRunnerHandle> {
+        self.maintenance.ambient_runner.clone()
+    }
+
+    pub fn mcp_pool(&self) -> Arc<OnceCell<Arc<SharedMcpPool>>> {
+        Arc::clone(&self.maintenance.mcp_pool)
+    }
+
+    // Helper to get the awaited pool (common pattern)
+    // Thin accessor so call sites (e.g. the handle_client monster) never call the util helper directly.
+    pub async fn get_mcp_pool(&self) -> Arc<SharedMcpPool> {
+        super::util::get_shared_mcp_pool(&self.maintenance.mcp_pool).await
+    }
+
+    // Delegate into SwarmState for the remaining inners still accessed in the big call site
+    pub fn swarm_members(&self) -> Arc<RwLock<HashMap<String, super::SwarmMember>>> {
+        Arc::clone(&self.swarm.swarm_state.members)
+    }
+    pub fn swarms_by_id(&self) -> Arc<RwLock<HashMap<String, std::collections::HashSet<String>>>> {
+        Arc::clone(&self.swarm.swarm_state.swarms_by_id)
+    }
+    pub fn swarm_plans(&self) -> Arc<RwLock<HashMap<String, super::VersionedPlan>>> {
+        Arc::clone(&self.swarm.swarm_state.plans)
+    }
+    pub fn swarm_coordinators(&self) -> Arc<RwLock<HashMap<String, String>>> {
+        Arc::clone(&self.swarm.swarm_state.coordinators)
+    }
+
+    // NOTE (Ola 2 Agent 4 dead field clean): ServerServices::from_server removed.
+    // It was unused (0 call sites), and referenced legacy duplicate fields we
+    // eliminated from Server (await_members_runtime + swarm_mutation_runtime).
+    // The services bag is populated exclusively via ServerServices::new in Server::new
+    // and carried via .services clone / ServerRuntime::from_server.
+}
