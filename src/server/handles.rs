@@ -194,6 +194,40 @@ impl SwarmServiceHandle {
         Self::get_member_swarm_info(&self.swarm_state.members, session_id).await
     }
 
+    // === Ola 4 Wave 4.1.2 SwarmStateInMonitor (this sub-agent) ===
+    // Completes extraction of swarm membership/state *query* logic from monitor_bus
+    // FileTouch arm (the direct swarm_members.read() + friendly_name lookups in the
+    // alert/notification construction loops after the peers computation).
+    // Thin read/passthrough only. Placed on SwarmServiceHandle (natural owner for
+    // swarm membership state). Follows exact pattern of Ola 3 dispatch + 4.1.1
+    // FileTouchExtractor (static &Arc form for transitional raw-param monitor_bus
+    // sites + ergonomic &self form; full docs; zero behavior change).
+    // Scope: ONLY queries for names used in alerts. NO event recording/fanout
+    // (record_file_activity_event etc untouched), NO sends/queues, NO param list
+    // changes to monitor_bus, NO ownership move. Non-overlapping with FileTouch
+    // writes and EventRecording.
+    // Prepares for later ParamCollapse (4.1.4). References: OLA4_MASTER_COMPLETION_PLAN.md
+    // Wave 4.1 + Sub-wave 4.1.2, ORCHESTRATION_STATUS.md (4.1.1 closure + Lead proposal).
+
+    /// Thin read helper: friendly_name for a session. Used exclusively for the
+    /// member name lookups inside monitor_bus FileTouch alert/notification loops
+    /// (the "later alert loops that read members again").
+    /// Passthrough; logic identical to prior inline .and_then friendly_name clones.
+    /// Does not return event_tx or perform any fanout/send/queue (those remain
+    /// direct in caller per strict scope).
+    pub async fn get_member_friendly_name_for_notification(
+        swarm_members: &Arc<RwLock<HashMap<String, super::SwarmMember>>>,
+        session_id: &str,
+    ) -> Option<String> {
+        let members = swarm_members.read().await;
+        members.get(session_id).and_then(|m| m.friendly_name.clone())
+    }
+
+    /// Ergonomic &self variant (for future use once services bag threaded to monitor paths).
+    pub async fn member_friendly_name_for_notification(&self, session_id: &str) -> Option<String> {
+        Self::get_member_friendly_name_for_notification(&self.swarm_state.members, session_id).await
+    }
+
     // === Ola 4 Wave 4.1 EventRecordingExtractor ===
     // Extracted ONLY the event recording + notification fanout logic for the
     // record_swarm_event call (and SwarmEventType::FileTouch construction) after
@@ -360,53 +394,6 @@ impl MaintenanceServiceHandle {
         crate::server::reload_state_summary(max_age)
     }
 
-    // === Ola 4 Wave 4.1 Move 6 FileTouchExtractor (first concrete extraction slice) ===
-    // Pure passthrough thin methods for the FileTouch recording + reverse index mutations.
-    // Zero behavior change. The two write blocks previously directly after BusEvent::FileTouch
-    // in monitor_bus are now routed through these. Non-overlapping: no swarm state, event
-    // recording, param list, reload, provider, or TUI touched. See OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1.
-
-    /// Thin passthrough for primary FileTouch recording (the first write block).
-    /// Exact logic from monitor_bus; called via handle (zero behavior change).
-    pub(super) async fn record_file_touch(
-        file_touches: &Arc<RwLock<HashMap<PathBuf, Vec<super::FileAccess>>>>,
-        touch: &crate::bus::FileTouch,
-    ) {
-        let path = touch.path.clone();
-        let session_id = touch.session_id.clone();
-
-        // Record this touch
-        {
-            let mut touches = file_touches.write().await;
-            let accesses = touches.entry(path.clone()).or_insert_with(Vec::new);
-            accesses.push(super::FileAccess {
-                session_id: session_id.clone(),
-                op: touch.op.clone(),
-                timestamp: Instant::now(),
-                absolute_time: SystemTime::now(),
-                intent: touch.intent.clone(),
-                summary: touch.summary.clone(),
-                detail: touch.detail.clone(),
-            });
-        }
-    }
-
-    /// Thin passthrough for the reverse index mutation (the second write block).
-    /// Exact logic from monitor_bus; called via handle (zero behavior change).
-    pub(super) async fn update_file_touch_reverse_index(
-        files_touched_by_session: &Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
-        session_id: &str,
-        path: &PathBuf,
-    ) {
-        {
-            let mut reverse_index = files_touched_by_session.write().await;
-            reverse_index
-                .entry(session_id.to_string())
-                .or_default()
-                .insert(path.clone());
-        }
-    }
-
     // E2E TEST REQUIREMENTS / GATES (strict for ANY future touches to reload guards, recovery, marker handoff, high-blast paths):
     // - Edit to server_reload_starting, reload marker fns, recovery persist/mark_delivered, handoff logic, or these methods
     //   REQUIRES green BEFORE merge:
@@ -417,6 +404,45 @@ impl MaintenanceServiceHandle {
     // - This is the E2E gate defined by Ola 2 closure priority #3 + Ola 3 ReloadE2EHardener mandate.
     // - 1-2 unit test exercises for narrowed paths should be added on any expansion of these methods (per charter).
     // Protects the highest-risk server paths (cross-PID/version exec handoff + continuation intent delivery).
+
+    /// Thin seam for FileTouch recording + reverse index (Wave 4.1.1 FileTouchExtractor sub-wave).
+    /// Encapsulates the two direct writes previously in monitor_bus FileTouch arm (server.rs:1369-1388).
+    /// Per OLA4_MASTER_COMPLETION_PLAN Wave 4.1 + SPLIT_PLAN Move 6: first mutation path collapsed behind MaintenanceServiceHandle.
+    /// Signature mirrors the touch data + Arcs exactly (no extra indirection yet).
+    /// Zero behavior change; call-site replace is mechanical 1:1.
+    /// Future: when state migrates to handle or MaintenanceRuntime, this will take &self or &SwarmServiceHandle.
+    /// E2E gate note: any expansion requires file_activity_tests.rs + server integration tests + full gate (no reload/TUI touched).
+    pub(super) async fn record_file_touch(
+        file_touches: Arc<RwLock<HashMap<PathBuf, Vec<super::FileAccess>>>>,
+        files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
+        path: PathBuf,
+        session_id: String,
+        op: crate::bus::FileOp,
+        intent: Option<String>,
+        summary: Option<String>,
+        detail: Option<String>,
+    ) {
+        {
+            let mut touches = file_touches.write().await;
+            let accesses = touches.entry(path.clone()).or_insert_with(Vec::new);
+            accesses.push(super::FileAccess {
+                session_id: session_id.clone(),
+                op: op.clone(),
+                timestamp: Instant::now(),
+                absolute_time: std::time::SystemTime::now(),
+                intent: intent.clone(),
+                summary: summary.clone(),
+                detail: detail.clone(),
+            });
+        }
+        {
+            let mut reverse_index = files_touched_by_session.write().await;
+            reverse_index
+                .entry(session_id.clone())
+                .or_default()
+                .insert(path.clone());
+        }
+    }
 }
 
 /// Thin handle for **Provider** runtime concerns (catalog, failover, auth refresh).

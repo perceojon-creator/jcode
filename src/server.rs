@@ -55,9 +55,10 @@ use self::reload::await_reload_signal;
 use self::runtime::ServerRuntime;
 use self::swarm::{
     broadcast_swarm_plan, broadcast_swarm_plan_with_previous, broadcast_swarm_status,
-    refresh_swarm_task_staleness, remove_plan_participant, remove_session_file_touches,
-    remove_session_from_swarm, rename_plan_participant, run_swarm_message,
-    update_member_status, update_member_status_with_report,
+    record_swarm_event, record_swarm_event_for_session, refresh_swarm_task_staleness,
+    remove_plan_participant, remove_session_file_touches, remove_session_from_swarm,
+    rename_plan_participant, run_swarm_message, update_member_status,
+    update_member_status_with_report,
 };
 use self::swarm_channels::{
     remove_session_channel_subscriptions, subscribe_session_to_channel,
@@ -1364,13 +1365,17 @@ impl Server {
                     let path = touch.path.clone();
                     let session_id = touch.session_id.clone();
 
-                    // Record this touch + reverse index via thin MaintenanceServiceHandle passthroughs
-                    // (Ola 4 Wave 4.1 FileTouchExtractor slice — zero behavior change).
-                    handles::MaintenanceServiceHandle::record_file_touch(&file_touches, &touch).await;
-                    handles::MaintenanceServiceHandle::update_file_touch_reverse_index(
-                        &files_touched_by_session,
-                        &session_id,
-                        &path,
+                    // Record via thin MaintenanceServiceHandle seam (Wave 4.1.1 FileTouchExtractor).
+                    // Direct Arc writes eliminated from monitor_bus body for this path.
+                    handles::MaintenanceServiceHandle::record_file_touch(
+                        Arc::clone(&file_touches),
+                        Arc::clone(&files_touched_by_session),
+                        path.clone(),
+                        session_id.clone(),
+                        touch.op.clone(),
+                        touch.intent.clone(),
+                        touch.summary.clone(),
+                        touch.detail.clone(),
                     )
                     .await;
 
@@ -1447,15 +1452,29 @@ impl Server {
                             "[file-activity] {} touched by peers before modification — sending alerts",
                             path.display()
                         ));
+                        // Swarm membership query for names routed via thin SwarmServiceHandle
+                        // (Wave 4.1.2 SwarmStateInMonitor). Direct .read() + friendly_name
+                        // lookups extracted for the alert construction (peer + current names).
+                        // The `members` read is retained here solely for .event_tx access in
+                        // the notification sends (fanout/send/queue logic untouched per scope;
+                        // only query sites updated). Zero behavior change.
                         let members = swarm_members.read().await;
-                        let current_member = members.get(&session_id);
-                        let current_name = current_member.and_then(|m| m.friendly_name.clone());
+                        let current_name =
+                            handles::SwarmServiceHandle::get_member_friendly_name_for_notification(
+                                &swarm_members,
+                                &session_id,
+                            )
+                            .await;
 
                         // Alert the current agent about previous peer touches (one per agent).
-                        if let Some(member) = current_member {
+                        if let Some(member) = members.get(&session_id) {
                             for prev in &previous_touches {
-                                let prev_member = members.get(&prev.session_id);
-                                let prev_name = prev_member.and_then(|m| m.friendly_name.clone());
+                                let prev_name =
+                                    handles::SwarmServiceHandle::get_member_friendly_name_for_notification(
+                                        &swarm_members,
+                                        &prev.session_id,
+                                    )
+                                    .await;
                                 let scope = file_activity_scope_label(prev, &touch);
                                 let intent_suffix = prev
                                     .intent
