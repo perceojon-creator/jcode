@@ -137,17 +137,38 @@ fn apply_profile_key_based_endpoint_overrides(
         return;
     }
 
-    let key = api_key_hint
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .map(ToString::to_string)
-        .or_else(|| load_env_value_from_env_or_config(profile.api_key_env, profile.env_file));
-
-    if key
-        .as_deref()
-        .map(|key| key.trim_start().starts_with("sk-cp-"))
-        .unwrap_or(false)
+    // 1. Highest priority: explicit MINIMAX_API_BASE (and optional MINIMAX_SETUP_URL)
+    //    saved in the provider's env file (minimax.env) or as environment variables.
+    //    This lets users with international endpoints fully control the target
+    //    without any magic auto-detection.
+    if let Some(explicit_base) = load_env_value_from_env_or_config("MINIMAX_API_BASE", profile.env_file)
+        .or_else(|| std::env::var("MINIMAX_API_BASE").ok().filter(|v| !v.trim().is_empty()))
     {
+        if let Some(normalized) = normalize_api_base(&explicit_base) {
+            resolved.api_base = normalized;
+        }
+        if let Some(explicit_setup) = load_env_value_from_env_or_config("MINIMAX_SETUP_URL", profile.env_file)
+            .or_else(|| std::env::var("MINIMAX_SETUP_URL").ok().filter(|v| !v.trim().is_empty()))
+        {
+            resolved.setup_url = explicit_setup;
+        }
+        return;
+    }
+
+    // 2. China endpoint is only selected when the user is explicitly using
+    //    the China-specific credential (MINIMAX_CN_API_KEY).
+    //
+    //    We deliberately removed the previous "sk-cp-" key prefix heuristic
+    //    because it caused international keys to be incorrectly routed to the
+    //    China API (api.minimaxi.com) even when the user had valid international
+    //    credentials and wanted the international endpoint (api.minimax.io).
+    let using_cn_key = load_env_value_from_env_or_config("MINIMAX_CN_API_KEY", profile.env_file).is_some()
+        || std::env::var("MINIMAX_CN_API_KEY")
+            .ok()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+
+    if using_cn_key {
         resolved.api_base = MINIMAX_CHINA_API_BASE.to_string();
         resolved.setup_url = MINIMAX_CHINA_SETUP_URL.to_string();
     }

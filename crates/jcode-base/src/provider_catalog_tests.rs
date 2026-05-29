@@ -106,11 +106,16 @@ fn auth_issue_profile_metadata_matches_direct_provider_endpoints() {
 }
 
 #[test]
-fn minimax_token_plan_keys_resolve_to_china_endpoint_without_changing_international_default() {
+fn minimax_international_default_is_never_auto_overridden_by_key_prefix() {
     let _lock = crate::storage::lock_test_env();
-    let _guard = EnvGuard::save(&["OPENAI_API_KEY"]);
+    let _guard = EnvGuard::save(&["OPENAI_API_KEY", "MINIMAX_CN_API_KEY"]);
     crate::env::remove_var("OPENAI_API_KEY");
+    crate::env::remove_var("MINIMAX_CN_API_KEY");
 
+    // The international profile must stay on the international endpoint
+    // even if a key that looks like a China token ("sk-cp-...") is provided.
+    // Automatic China routing based on key prefix was removed because it
+    // incorrectly forced international users to api.minimaxi.com.
     let international = resolve_openai_compatible_profile(MINIMAX_PROFILE);
     assert_eq!(international.api_base, "https://api.minimax.io/v1");
     assert_eq!(
@@ -118,12 +123,17 @@ fn minimax_token_plan_keys_resolve_to_china_endpoint_without_changing_internatio
         "https://platform.minimax.io/docs/guides/text-generation"
     );
 
-    let china = resolve_openai_compatible_profile_with_api_key_hint(
+    let with_cp_key = resolve_openai_compatible_profile_with_api_key_hint(
         MINIMAX_PROFILE,
         Some("sk-cp-test-token"),
     );
-    assert_eq!(china.api_base, MINIMAX_CHINA_API_BASE);
-    assert_eq!(china.setup_url, MINIMAX_CHINA_SETUP_URL);
+    assert_eq!(with_cp_key.api_base, "https://api.minimax.io/v1");
+
+    // China endpoint is only used when the dedicated CN credential is present.
+    crate::env::set_var("MINIMAX_CN_API_KEY", "cn-test-key");
+    let china_via_cn_key = resolve_openai_compatible_profile(MINIMAX_PROFILE);
+    assert_eq!(china_via_cn_key.api_base, MINIMAX_CHINA_API_BASE);
+    assert_eq!(china_via_cn_key.setup_url, MINIMAX_CHINA_SETUP_URL);
 }
 
 #[test]

@@ -780,6 +780,69 @@ fn login_openai_compatible_flow(
 
     eprintln!("Setting up {}...", resolved.display_name);
     let setup_url_depends_on_key = profile.id == crate::provider_catalog::MINIMAX_PROFILE.id;
+
+    // Special handling for MiniMax: explicitly ask for the platform/endpoint
+    // because there are two completely separate platforms with different endpoints,
+    // pricing models (pay-as-you-go vs Token Plan / Coding Plan), and key validity.
+    if profile.id == crate::provider_catalog::MINIMAX_PROFILE.id {
+        // Check if the user already has an explicit MINIMAX_API_BASE configured
+        // (either in env or previously saved in minimax.env). If so, respect it
+        // and skip the interactive platform question.
+        let existing_explicit_base = crate::provider_catalog::load_env_value_from_env_or_config(
+            "MINIMAX_API_BASE",
+            profile.env_file,
+        )
+        .or_else(|| std::env::var("MINIMAX_API_BASE").ok().filter(|v| !v.trim().is_empty()));
+
+        if existing_explicit_base.is_none() {
+            eprintln!();
+            eprintln!("MiniMax has two separate platforms (keys from one do NOT work on the other):");
+            eprintln!("  1. International / Global  →  platform.minimax.io");
+            eprintln!("     Endpoint: https://api.minimax.io/v1");
+            eprintln!("     Supports both Pay-as-you-go (regular interface keys) and Token Plan / Coding Plan (sk-cp-... keys)");
+            eprintln!("     Recommended for users outside mainland China.");
+            eprintln!();
+            eprintln!("  2. China  →  platform.minimaxi.com");
+            eprintln!("     Endpoint: https://api.minimaxi.com/v1");
+            eprintln!("     Use this only if your account was created on the China platform.");
+            eprintln!();
+
+            let choice = if !io::stdin().is_terminal() {
+                "1".to_string()
+            } else {
+                read_line_trimmed("Which platform is your account/key from? [1] International  [2] China (default: 1): ")?
+            };
+
+            let use_china = choice.trim() == "2";
+
+            let (chosen_base, chosen_setup) = if use_china {
+                (
+                    "https://api.minimaxi.com/v1",
+                    "https://platform.minimaxi.com/docs/llms.txt",
+                )
+            } else {
+                (
+                    "https://api.minimax.io/v1",
+                    "https://platform.minimax.io/docs/guides/text-generation",
+                )
+            };
+
+            crate::provider_catalog::save_env_value_to_env_file(
+                "MINIMAX_API_BASE",
+                profile.env_file,
+                Some(chosen_base),
+            )?;
+            crate::provider_catalog::save_env_value_to_env_file(
+                "MINIMAX_SETUP_URL",
+                profile.env_file,
+                Some(chosen_setup),
+            )?;
+
+            resolved = crate::provider_catalog::resolve_openai_compatible_profile(*profile);
+            eprintln!();
+        }
+    }
+
     if !setup_url_depends_on_key {
         eprintln!("See setup details: {}\n", resolved.setup_url);
     }
