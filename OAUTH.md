@@ -265,7 +265,7 @@ Two notable presets are:
 ### MiniMax
 - Login: `jcode login --provider minimax`
 - Stored env file: `~/.config/jcode/minimax.env`
-- API key env var: `OPENAI_API_KEY`
+- API key env var: `MINIMAX_API_KEY`
 - Base URL: `https://api.minimax.io/v1`
 - Default model hint: `MiniMax-M2.7`
 - Docs: <https://platform.minimax.io/docs/guides/text-generation>

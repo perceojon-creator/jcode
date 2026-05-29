@@ -92,7 +92,7 @@ fn auth_issue_profile_metadata_matches_direct_provider_endpoints() {
     assert_eq!(DEEPSEEK_PROFILE.default_model, Some("deepseek-v4-flash"));
     assert_eq!(DEEPSEEK_PROFILE.setup_url, "https://api-docs.deepseek.com/");
     assert_eq!(MINIMAX_PROFILE.api_base, "https://api.minimax.io/v1");
-    assert_eq!(MINIMAX_PROFILE.api_key_env, "OPENAI_API_KEY");
+    assert_eq!(MINIMAX_PROFILE.api_key_env, "MINIMAX_API_KEY");
     assert_eq!(
         ALIBABA_CODING_PLAN_PROFILE.api_base,
         "https://coding-intl.dashscope.aliyuncs.com/v1"
@@ -108,7 +108,8 @@ fn auth_issue_profile_metadata_matches_direct_provider_endpoints() {
 #[test]
 fn minimax_sk_cp_keys_use_international_endpoint_by_default() {
     let _lock = crate::storage::lock_test_env();
-    let _guard = EnvGuard::save(&["OPENAI_API_KEY"]);
+    let _guard = EnvGuard::save(&["MINIMAX_API_KEY", "OPENAI_API_KEY"]);
+    crate::env::remove_var("MINIMAX_API_KEY");
     crate::env::remove_var("OPENAI_API_KEY");
 
     let international = resolve_openai_compatible_profile(MINIMAX_PROFILE);
@@ -823,5 +824,47 @@ fn load_api_key_accepts_legacy_zai_key_name() {
     assert_eq!(
         load_api_key_from_env_or_config("ZHIPU_API_KEY", "zai.env").as_deref(),
         Some("legacy-secret")
+    );
+}
+
+#[test]
+fn load_api_key_accepts_legacy_minimax_openai_key_name() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_root = temp.path().join("config").join("jcode");
+    std::fs::create_dir_all(&config_root).expect("config dir");
+
+    let _guard = EnvGuard::save(&["JCODE_HOME", "MINIMAX_API_KEY", "OPENAI_API_KEY"]);
+    crate::env::set_var("JCODE_HOME", temp.path());
+    crate::env::remove_var("MINIMAX_API_KEY");
+    crate::env::remove_var("OPENAI_API_KEY");
+    std::fs::write(
+        config_root.join("minimax.env"),
+        "OPENAI_API_KEY=legacy-minimax-secret\n",
+    )
+    .expect("env file");
+
+    assert_eq!(
+        load_api_key_from_env_or_config("MINIMAX_API_KEY", "minimax.env").as_deref(),
+        Some("legacy-minimax-secret")
+    );
+}
+
+#[test]
+fn minimax_key_does_not_fall_back_to_global_openai_key() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_root = temp.path().join("config").join("jcode");
+    std::fs::create_dir_all(&config_root).expect("config dir");
+
+    let _guard = EnvGuard::save(&["JCODE_HOME", "MINIMAX_API_KEY", "OPENAI_API_KEY"]);
+    crate::env::set_var("JCODE_HOME", temp.path());
+    crate::env::remove_var("MINIMAX_API_KEY");
+    crate::env::set_var("OPENAI_API_KEY", "global-openai-secret");
+    std::fs::write(config_root.join("minimax.env"), "").expect("env file");
+
+    assert_eq!(
+        load_api_key_from_env_or_config("MINIMAX_API_KEY", "minimax.env").as_deref(),
+        None
     );
 }

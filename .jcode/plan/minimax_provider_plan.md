@@ -17,6 +17,8 @@ Implementation direction is therefore changed:
 
 - Do not infer China routing from the key prefix.
 - Keep MiniMax on the profile default `https://api.minimax.io/v1`.
+- Store new MiniMax credentials under `MINIMAX_API_KEY`; keep reading legacy
+  `OPENAI_API_KEY` from `minimax.env` for backward compatibility.
 - Do not add fallback from China to international unless there is an explicit user-visible
   China profile or config switch.
 - Do not add a local request-count rate limiter yet; provider-side rate-limit headers/errors
@@ -87,7 +89,7 @@ fn minimax_token_plan_keys_resolve_to_china_endpoint_without_changing_internatio
 ```
 1. User configures MiniMax (jcode login --provider minimax)
    ↓
-2. API key stored in ~/.config/jcode/minimax.env as OPENAI_API_KEY
+2. API key stored in ~/.config/jcode/minimax.env as MINIMAX_API_KEY
    ↓
 3. resolve_openai_compatible_profile() called
    ↓

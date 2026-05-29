@@ -115,7 +115,7 @@ pub const MINIMAX_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     id: "minimax",
     display_name: "MiniMax",
     api_base: "https://api.minimax.io/v1",
-    api_key_env: "OPENAI_API_KEY",  // Nota: compartida con standard OpenAI
+    api_key_env: "MINIMAX_API_KEY",
     env_file: "minimax.env",
     setup_url: "https://platform.minimax.io/docs/guides/text-generation",
     default_model: Some("MiniMax-M2.7"),
@@ -164,8 +164,7 @@ minimax-m2.7        (version lowercase, alias)
 
 1. **No catalog dinamico:** MiniMax tiene endpoint `/models` autenticado pero no se usa
 2. **Pricing fijo:** No hay precios dinamicos de OpenRouter
-3. **Single API key env:** `OPENAI_API_KEY` compartida entre providers
-4. **Rate limit handling:** No hay retry inteligente para 429
+3. **Rate limit handling:** El runtime respeta errores/header `retry-after`, pero no hay politica MiniMax dedicada
 
 ---
 
@@ -419,7 +418,6 @@ pub enum ActiveProvider {
 
 **Areas de Mejora:**
 - No usa catalog dinamico (endpoint `/models` existe pero no se consulta)
-- Env var `OPENAI_API_KEY` compartida (potential conflict)
 - Pricing fijo (no dinamico como OpenRouter)
 - Rate limit 4500 req/5h no totalmente manejado
 
@@ -429,8 +427,7 @@ pub enum ActiveProvider {
 
 ### Short-term (1-3 meses)
 1. Agregar catalog dinamico para MiniMax
-2. Separar `MINIMAX_API_KEY` de `OPENAI_API_KEY`
-3. Implementar rate limit backoff para MiniMax
+2. Implementar rate limit backoff especifico para MiniMax si los errores reales lo justifican
 
 ### Medium-term (3-6 meses)
 1. Universalizar health check framework

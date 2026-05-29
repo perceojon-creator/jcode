@@ -792,6 +792,18 @@ pub fn load_api_key_from_env_or_config(env_key: &str, file_name: &str) -> Option
         }
     }
 
+    if env_key == "MINIMAX_API_KEY" && file_name == MINIMAX_PROFILE.env_file {
+        let legacy_prefix = "OPENAI_API_KEY=";
+        for line in content.lines() {
+            if let Some(key) = line.strip_prefix(legacy_prefix) {
+                let key = key.trim().trim_matches('"').trim_matches('\'');
+                if !key.is_empty() {
+                    return Some(key.to_string());
+                }
+            }
+        }
+    }
+
     if let Some(key) = crate::auth::external::load_api_key_for_env(env_key) {
         return Some(key);
     }
