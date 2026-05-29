@@ -10,11 +10,10 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::fs::OpenOptions;
 use std::path::Path;
-use std::process::{Command as StdCommand, Stdio};
+use std::process::Stdio;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -173,6 +172,7 @@ fn parse_progress_marker_with_checkpoint(line: &str) -> Option<(BackgroundTaskPr
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 fn parse_progress_marker(line: &str) -> Option<BackgroundTaskProgress> {
     parse_progress_marker_with_checkpoint(line).map(|(progress, _)| progress)
 }

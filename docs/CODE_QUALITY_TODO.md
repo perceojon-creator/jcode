@@ -20,8 +20,10 @@ Status values:
 
 - [x] Inventory all `#![allow(dead_code)]` locations and justify or remove them
 - [x] Reduce baseline warning count significantly from the current level
-- [ ] Remove stale unused functions in `setup_hints.rs`
-- [ ] Remove stale unused code in TUI support modules
+- [x] Remove stale unused functions in `setup_hints.rs`
+  - Completed 2026-05-29: removed the unused Windows desktop-shortcut helper path and kept Windows setup focused on hotkey/terminal setup.
+- [x] Remove stale unused code in TUI support modules
+  - Completed 2026-05-29: gated handterm native-scroll snapshot/update-only types to Unix and cleared current Windows dead-code warnings.
 - [ ] Audit broad suppressions and replace with narrow local allowances
 
 ## Phase 2: Decompose the Biggest Files

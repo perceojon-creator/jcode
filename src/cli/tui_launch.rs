@@ -48,9 +48,6 @@ fn focus_title_best_effort(title: &str) {
     let _ = crate::platform::spawn_detached(&mut cmd);
 }
 
-#[cfg(any(not(unix), target_os = "macos"))]
-fn focus_title_best_effort(_title: &str) {}
-
 pub async fn run_client() -> Result<()> {
     let mut client = server::Client::connect().await?;
 
@@ -498,6 +495,7 @@ pub fn spawn_selfdev_in_new_terminal_with_provider(
         .title(selfdev_title.clone())
         .fresh_spawn();
     let spawned = crate::terminal_launch::spawn_command_in_new_terminal(&command, cwd)?;
+    #[cfg(all(unix, not(target_os = "macos")))]
     if spawned {
         focus_title_best_effort(&selfdev_title);
     }

@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const RELOAD_HANDOFF_EVENT_POLL_MS: i32 = 100;
-
 pub fn reload_marker_path() -> PathBuf {
     crate::storage::runtime_dir().join("jcode.reload")
 }
