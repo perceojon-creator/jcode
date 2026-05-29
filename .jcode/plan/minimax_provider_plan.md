@@ -6,6 +6,22 @@
 **Target:** MiniMax Provider (China endpoint `api.minimaxi.com`)  
 **Context:** OpenAI-compatible API structure with China-specific routing via `sk-cp-` key prefix detection
 
+## Validation Update: 2026-05-28
+
+The original plan assumed that every `sk-cp-*` key should route to the China endpoint.
+That assumption is not safe: current MiniMax OpenAI-compatible/token-plan docs advertise
+`https://api.minimax.io/v1` as the default base URL, and real `sk-cp-*` token-plan keys can
+fail with `401` when forced to `https://api.minimaxi.com/v1`.
+
+Implementation direction is therefore changed:
+
+- Do not infer China routing from the key prefix.
+- Keep MiniMax on the profile default `https://api.minimax.io/v1`.
+- Do not add fallback from China to international unless there is an explicit user-visible
+  China profile or config switch.
+- Do not add a local request-count rate limiter yet; provider-side rate-limit headers/errors
+  are the safer source of truth.
+
 ---
 
 ## 1. API Analysis: MiniMax China vs International

@@ -2,8 +2,6 @@ pub use jcode_provider_metadata::*;
 use std::collections::{HashMap, HashSet};
 
 pub const OPENAI_COMPAT_LOCAL_ENABLED_ENV: &str = "JCODE_OPENAI_COMPAT_LOCAL_ENABLED";
-pub const MINIMAX_CHINA_API_BASE: &str = "https://api.minimaxi.com/v1";
-pub const MINIMAX_CHINA_SETUP_URL: &str = "https://platform.minimaxi.com/docs/llms.txt";
 
 pub(crate) fn api_base_uses_localhost(raw: &str) -> bool {
     let Ok(parsed) = url::Url::parse(raw) else {
@@ -27,7 +25,7 @@ pub fn resolve_openai_compatible_profile(
 
 pub fn resolve_openai_compatible_profile_with_api_key_hint(
     profile: OpenAiCompatibleProfile,
-    api_key_hint: Option<&str>,
+    _api_key_hint: Option<&str>,
 ) -> ResolvedOpenAiCompatibleProfile {
     let mut resolved = ResolvedOpenAiCompatibleProfile {
         id: profile.id.to_string(),
@@ -39,8 +37,6 @@ pub fn resolve_openai_compatible_profile_with_api_key_hint(
         default_model: profile.default_model.map(ToString::to_string),
         requires_api_key: profile.requires_api_key,
     };
-
-    apply_profile_key_based_endpoint_overrides(profile, &mut resolved, api_key_hint);
 
     if profile.id != OPENAI_COMPAT_PROFILE.id {
         return resolved;
@@ -92,36 +88,6 @@ pub fn resolve_openai_compatible_profile_with_api_key_hint(
     }
 
     resolved
-}
-
-fn apply_profile_key_based_endpoint_overrides(
-    profile: OpenAiCompatibleProfile,
-    resolved: &mut ResolvedOpenAiCompatibleProfile,
-    api_key_hint: Option<&str>,
-) {
-    if profile.id != MINIMAX_PROFILE.id {
-        return;
-    }
-
-    let key = api_key_hint
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .map(ToString::to_string)
-        .or_else(|| load_env_value_from_env_or_config(profile.api_key_env, profile.env_file));
-
-    // FIXED 2026-05-28: Removed forced China endpoint routing
-    // User's sk-cp-* key works with international endpoint (api.minimax.io)
-    // The prefix sk-cp- does NOT automatically mean China endpoint
-    // Use the default api_base instead to avoid 401 errors
-    // 
-    // if key
-    //     .as_deref()
-    //     .map(|key| key.trim_start().starts_with("sk-cp-"))
-    //     .unwrap_or(false)
-    // {
-    //     resolved.api_base = MINIMAX_CHINA_API_BASE.to_string();
-    //     resolved.setup_url = MINIMAX_CHINA_SETUP_URL.to_string();
-    // }
 }
 
 pub fn resolve_openai_compatible_profile_selection(input: &str) -> Option<OpenAiCompatibleProfile> {

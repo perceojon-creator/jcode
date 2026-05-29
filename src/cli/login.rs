@@ -779,10 +779,7 @@ fn login_openai_compatible_flow(
     let mut resolved = resolve_openai_compatible_profile(*profile);
 
     eprintln!("Setting up {}...", resolved.display_name);
-    let setup_url_depends_on_key = profile.id == crate::provider_catalog::MINIMAX_PROFILE.id;
-    if !setup_url_depends_on_key {
-        eprintln!("See setup details: {}\n", resolved.setup_url);
-    }
+    eprintln!("See setup details: {}\n", resolved.setup_url);
 
     if is_custom_profile {
         if !io::stdin().is_terminal()
@@ -874,9 +871,6 @@ fn login_openai_compatible_flow(
             Some(&key),
         );
         eprintln!("Endpoint: {}", resolved.api_base);
-        if setup_url_depends_on_key {
-            eprintln!("See setup details: {}", resolved.setup_url);
-        }
 
         crate::provider_catalog::save_env_value_to_env_file(
             OPENAI_COMPAT_LOCAL_ENABLED_ENV,
@@ -888,9 +882,6 @@ fn login_openai_compatible_flow(
         "api_key"
     } else {
         eprintln!("Endpoint: {}", resolved.api_base);
-        if setup_url_depends_on_key {
-            eprintln!("See setup details: {}", resolved.setup_url);
-        }
         eprintln!("This provider uses a local OpenAI-compatible endpoint.");
         eprintln!(
             "An API key is optional here. Press Enter to skip if your local server does not require one.\n"

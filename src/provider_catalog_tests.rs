@@ -106,7 +106,7 @@ fn auth_issue_profile_metadata_matches_direct_provider_endpoints() {
 }
 
 #[test]
-fn minimax_token_plan_keys_resolve_to_china_endpoint_without_changing_international_default() {
+fn minimax_sk_cp_keys_use_international_endpoint_by_default() {
     let _lock = crate::storage::lock_test_env();
     let _guard = EnvGuard::save(&["OPENAI_API_KEY"]);
     crate::env::remove_var("OPENAI_API_KEY");
@@ -118,12 +118,29 @@ fn minimax_token_plan_keys_resolve_to_china_endpoint_without_changing_internatio
         "https://platform.minimax.io/docs/guides/text-generation"
     );
 
-    let china = resolve_openai_compatible_profile_with_api_key_hint(
+    // sk-cp-* keys now use default international endpoint
+    let sk_cp_key = resolve_openai_compatible_profile_with_api_key_hint(
         MINIMAX_PROFILE,
         Some("sk-cp-test-token"),
     );
-    assert_eq!(china.api_base, MINIMAX_CHINA_API_BASE);
-    assert_eq!(china.setup_url, MINIMAX_CHINA_SETUP_URL);
+    assert_eq!(sk_cp_key.api_base, "https://api.minimax.io/v1");
+    assert_eq!(
+        sk_cp_key.setup_url,
+        "https://platform.minimax.io/docs/guides/text-generation"
+    );
+
+    let spaced_sk_cp_key = resolve_openai_compatible_profile_with_api_key_hint(
+        MINIMAX_PROFILE,
+        Some("  sk-cp-test-token  "),
+    );
+    assert_eq!(spaced_sk_cp_key.api_base, "https://api.minimax.io/v1");
+
+    // regular keys also use international endpoint
+    let regular_key = resolve_openai_compatible_profile_with_api_key_hint(
+        MINIMAX_PROFILE,
+        Some("sk-regular-key"),
+    );
+    assert_eq!(regular_key.api_base, "https://api.minimax.io/v1");
 }
 
 #[test]
