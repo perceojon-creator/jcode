@@ -105,7 +105,7 @@ fn server_initializes_schedule_runner_even_when_ambient_disabled() {
     let server = Server::new(provider);
 
     assert!(
-        server.ambient_runner.is_some(),
+        server.services.maintenance.ambient_runner.is_some(),
         "schedule/session tasks need the runner even when ambient is disabled"
     );
 }
@@ -131,7 +131,7 @@ async fn debug_accept_loop_responds_to_ping_without_affecting_client_count() {
     .expect("debug client should connect");
 
     assert!(client.ping().await.expect("debug ping should succeed"));
-    assert_eq!(*server.client_count.read().await, 0);
+    assert_eq!(*server.services.client_count().read().await, 0);
 
     debug_handle.abort();
 }

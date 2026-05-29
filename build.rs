@@ -6,6 +6,17 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 fn main() {
+    // Increase main thread stack reservation on Windows to mitigate debug-profile
+    // stack overflows (0xC00000FD). Debug builds (opt-level=0) have significantly
+    // larger stack frames than release due to lack of inlining and larger temporaries
+    // in init paths (tokio runtime, rustls crypto provider, reqwest blocking client
+    // used by telemetry, large monolithic closures in desktop, etc.). Release builds
+    // already succeed with default stack; this change is a no-op for them in practice
+    // and does not alter runtime behavior or performance characteristics.
+    // 16 MiB is a conservative safe value used by many GUI/ heavy-init Rust apps on Win32.
+    #[cfg(target_os = "windows")]
+    println!("cargo:rustc-link-arg=/STACK:0x1000000");
+
     let pkg_version = env!("CARGO_PKG_VERSION");
     let base_version = parse_semver(pkg_version).unwrap_or((0, 0, 0));
     let build_semver = resolve_build_semver(base_version).unwrap_or_else(|err| {

@@ -1,8 +1,8 @@
 {
-  "total": 2289,
+  "total": 2262,
   "totals_by_pattern": {
     "dot_ok": 756,
-    "let_underscore": 989,
+    "let_underscore": 962,
     "unwrap_or_default": 544
   },
   "tracked_files": {
@@ -848,7 +848,7 @@
     },
     "src/server/client_actions.rs": {
       "dot_ok": 0,
-      "let_underscore": 40,
+      "let_underscore": 24,
       "unwrap_or_default": 1
     },
     "src/server/client_comm_channels.rs": {
@@ -868,7 +868,7 @@
     },
     "src/server/client_lifecycle.rs": {
       "dot_ok": 0,
-      "let_underscore": 33,
+      "let_underscore": 28,
       "unwrap_or_default": 0
     },
     "src/server/client_session.rs": {
@@ -963,7 +963,7 @@
     },
     "src/server/provider_control.rs": {
       "dot_ok": 1,
-      "let_underscore": 31,
+      "let_underscore": 25,
       "unwrap_or_default": 0
     },
     "src/server/reload.rs": {

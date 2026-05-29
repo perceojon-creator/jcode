@@ -161,7 +161,7 @@ pub(super) fn pending_directive_for_session(
     Ok(Some(directive))
 }
 
-pub(super) fn mark_delivered_if_matching_continuation(
+pub(crate) fn mark_delivered_if_matching_continuation(
     session_id: &str,
     continuation_message: &str,
     accepted_by: &str,

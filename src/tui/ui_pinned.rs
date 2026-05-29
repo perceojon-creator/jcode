@@ -763,14 +763,7 @@ fn collect_pinned_content(
             })
             .unwrap_or_else(|| "unknown".to_string());
 
-        let change_lines = {
-            let from_content = collect_diff_lines(&msg.content);
-            if !from_content.is_empty() {
-                from_content
-            } else {
-                generate_diff_lines_from_tool_input(tc)
-            }
-        };
+        let change_lines = edit_change_lines_for_tool(tc, &msg.content);
         if change_lines.is_empty() {
             continue;
         }

@@ -289,17 +289,20 @@ impl Agent {
                                 ));
                             }
                             retry_after_compaction = true;
-                            let _ = event_tx.send(ServerEvent::Compaction {
-                                trigger: "auto_recovery".to_string(),
-                                pre_tokens: None,
-                                post_tokens: None,
-                                tokens_saved: None,
-                                duration_ms: None,
-                                messages_dropped: None,
-                                messages_compacted: None,
-                                summary_chars: None,
-                                active_messages: None,
-                            });
+                            super::streaming::emit_best_effort_broadcast(
+                                &event_tx,
+                                ServerEvent::Compaction {
+                                    trigger: "auto_recovery".to_string(),
+                                    pre_tokens: None,
+                                    post_tokens: None,
+                                    tokens_saved: None,
+                                    duration_ms: None,
+                                    messages_dropped: None,
+                                    messages_compacted: None,
+                                    summary_chars: None,
+                                    active_messages: None,
+                                },
+                            );
                             break;
                         }
                         log_agent_provider_stream_lifecycle(
@@ -626,17 +629,20 @@ impl Agent {
                                 ));
                             }
                             retry_after_compaction = true;
-                            let _ = event_tx.send(ServerEvent::Compaction {
-                                trigger: "auto_recovery".to_string(),
-                                pre_tokens: None,
-                                post_tokens: None,
-                                tokens_saved: None,
-                                duration_ms: None,
-                                messages_dropped: None,
-                                messages_compacted: None,
-                                summary_chars: None,
-                                active_messages: None,
-                            });
+                            super::streaming::emit_best_effort_broadcast(
+                                &event_tx,
+                                ServerEvent::Compaction {
+                                    trigger: "auto_recovery".to_string(),
+                                    pre_tokens: None,
+                                    post_tokens: None,
+                                    tokens_saved: None,
+                                    duration_ms: None,
+                                    messages_dropped: None,
+                                    messages_compacted: None,
+                                    summary_chars: None,
+                                    active_messages: None,
+                                },
+                            );
                             break;
                         }
                         log_agent_provider_stream_lifecycle(
@@ -734,21 +740,33 @@ impl Agent {
                 && let Some(tc) = tool_calls.last()
                 && tc.id.starts_with("fallback_text_call_")
             {
-                let _ = event_tx.send(ServerEvent::TextReplace {
-                    text: text_content.clone(),
-                });
-                let _ = event_tx.send(ServerEvent::ToolStart {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                });
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::TextReplace {
+                        text: text_content.clone(),
+                    },
+                );
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::ToolStart {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                    },
+                );
                 tool_id_to_name.insert(tc.id.clone(), tc.name.clone());
-                let _ = event_tx.send(ServerEvent::ToolInput {
-                    delta: tc.input.to_string(),
-                });
-                let _ = event_tx.send(ServerEvent::ToolExec {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                });
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::ToolInput {
+                        delta: tc.input.to_string(),
+                    },
+                );
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::ToolExec {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                    },
+                );
             }
 
             // Add assistant message to history

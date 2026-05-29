@@ -200,17 +200,20 @@ impl Agent {
                                                 Self::MAX_CONTEXT_LIMIT_RETRIES
                                             ));
                                         }
-                                        let _ = event_tx.send(ServerEvent::Compaction {
-                                            trigger: "auto_recovery".to_string(),
-                                            pre_tokens: None,
-                                            post_tokens: None,
-                                            tokens_saved: None,
-                                            duration_ms: None,
-                                            messages_dropped: None,
-                                            messages_compacted: None,
-                                            summary_chars: None,
-                                            active_messages: None,
-                                        });
+                                        super::streaming::emit_best_effort_mpsc(
+                                            &event_tx,
+                                            ServerEvent::Compaction {
+                                                trigger: "auto_recovery".to_string(),
+                                                pre_tokens: None,
+                                                post_tokens: None,
+                                                tokens_saved: None,
+                                                duration_ms: None,
+                                                messages_dropped: None,
+                                                messages_compacted: None,
+                                                summary_chars: None,
+                                                active_messages: None,
+                                            },
+                                        );
                                         continue;
                                     }
                                     return Err(e);
@@ -334,17 +337,20 @@ impl Agent {
                                 ));
                             }
                             retry_after_compaction = true;
-                            let _ = event_tx.send(ServerEvent::Compaction {
-                                trigger: "auto_recovery".to_string(),
-                                pre_tokens: None,
-                                post_tokens: None,
-                                tokens_saved: None,
-                                duration_ms: None,
-                                messages_dropped: None,
-                                messages_compacted: None,
-                                summary_chars: None,
-                                active_messages: None,
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::Compaction {
+                                    trigger: "auto_recovery".to_string(),
+                                    pre_tokens: None,
+                                    post_tokens: None,
+                                    tokens_saved: None,
+                                    duration_ms: None,
+                                    messages_dropped: None,
+                                    messages_compacted: None,
+                                    summary_chars: None,
+                                    active_messages: None,
+                                },
+                            );
                             break;
                         }
                         log_agent_provider_stream_lifecycle(
@@ -368,18 +374,24 @@ impl Agent {
                     StreamEvent::ThinkingDelta(thinking_text) => {
                         // Only send thinking content if enabled in config
                         if crate::config::config().display.show_thinking {
-                            let _ = event_tx.send(ServerEvent::TextDelta {
-                                text: format!("💭 {}\n", thinking_text),
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::TextDelta {
+                                    text: format!("💭 {}\n", thinking_text),
+                                },
+                            );
                         }
                         if store_reasoning_content {
                             reasoning_content.push_str(&thinking_text);
                         }
                     }
                     StreamEvent::ThinkingDone { duration_secs } => {
-                        let _ = event_tx.send(ServerEvent::TextDelta {
-                            text: format!("Thought for {:.1}s\n", duration_secs),
-                        });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::TextDelta {
+                                text: format!("Thought for {:.1}s\n", duration_secs),
+                            },
+                        );
                     }
                     StreamEvent::TextDelta(text) => {
                         text_content.push_str(&text);
@@ -391,30 +403,41 @@ impl Agent {
                                 text_wrapped_detected = true;
                                 let clean_prefix =
                                     text_content[..marker_idx].trim_end().to_string();
-                                let _ =
-                                    event_tx.send(ServerEvent::TextReplace { text: clean_prefix });
+                                super::streaming::emit_best_effort_mpsc(
+                                    &event_tx,
+                                    ServerEvent::TextReplace { text: clean_prefix },
+                                );
                             } else {
-                                let _ =
-                                    event_tx.send(ServerEvent::TextDelta { text: text.clone() });
+                                super::streaming::emit_best_effort_mpsc(
+                                    &event_tx,
+                                    ServerEvent::TextDelta { text: text.clone() },
+                                );
                             }
                         }
                         if self.is_graceful_shutdown() {
                             logging::info(
                                 "Graceful shutdown during streaming - checkpointing partial response",
                             );
-                            let _ = event_tx.send(ServerEvent::TextDelta {
-                                text: "\n\n[generation interrupted - server reloading]".to_string(),
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::TextDelta {
+                                    text: "\n\n[generation interrupted - server reloading]"
+                                        .to_string(),
+                                },
+                            );
                             text_content
                                 .push_str("\n\n[generation interrupted - server reloading]");
                             break;
                         }
                     }
                     StreamEvent::ToolUseStart { id, name } => {
-                        let _ = event_tx.send(ServerEvent::ToolStart {
-                            id: id.clone(),
-                            name: name.clone(),
-                        });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::ToolStart {
+                                id: id.clone(),
+                                name: name.clone(),
+                            },
+                        );
                         tool_id_to_name.insert(id.clone(), name.clone());
                         current_tool = Some(ToolCall {
                             id,
@@ -425,9 +448,12 @@ impl Agent {
                         current_tool_input.clear();
                     }
                     StreamEvent::ToolInputDelta(delta) => {
-                        let _ = event_tx.send(ServerEvent::ToolInput {
-                            delta: delta.clone(),
-                        });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::ToolInput {
+                                delta: delta.clone(),
+                            },
+                        );
                         current_tool_input.push_str(&delta);
                     }
                     StreamEvent::ToolUseEnd => {
@@ -436,10 +462,13 @@ impl Agent {
                                 ToolCall::parse_streamed_input_to_object(&current_tool_input);
                             tool.refresh_intent_from_input();
 
-                            let _ = event_tx.send(ServerEvent::ToolExec {
-                                id: tool.id.clone(),
-                                name: tool.name.clone(),
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::ToolExec {
+                                    id: tool.id.clone(),
+                                    name: tool.name.clone(),
+                                },
+                            );
 
                             tool_calls.push(tool);
                             current_tool_input.clear();
@@ -454,16 +483,19 @@ impl Agent {
                             .get(&tool_use_id)
                             .cloned()
                             .unwrap_or_default();
-                        let _ = event_tx.send(ServerEvent::ToolDone {
-                            id: tool_use_id.clone(),
-                            name: tool_name,
-                            output: content.clone(),
-                            error: if is_error {
-                                Some("Tool error".to_string())
-                            } else {
-                                None
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::ToolDone {
+                                id: tool_use_id.clone(),
+                                name: tool_name,
+                                output: content.clone(),
+                                error: if is_error {
+                                    Some("Tool error".to_string())
+                                } else {
+                                    None
+                                },
                             },
-                        });
+                        );
                         sdk_tool_results.insert(tool_use_id, (content, is_error));
                     }
                     StreamEvent::GeneratedImage {
@@ -665,17 +697,20 @@ impl Agent {
                                 ));
                             }
                             retry_after_compaction = true;
-                            let _ = event_tx.send(ServerEvent::Compaction {
-                                trigger: "auto_recovery".to_string(),
-                                pre_tokens: None,
-                                post_tokens: None,
-                                tokens_saved: None,
-                                duration_ms: None,
-                                messages_dropped: None,
-                                messages_compacted: None,
-                                summary_chars: None,
-                                active_messages: None,
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::Compaction {
+                                    trigger: "auto_recovery".to_string(),
+                                    pre_tokens: None,
+                                    post_tokens: None,
+                                    tokens_saved: None,
+                                    duration_ms: None,
+                                    messages_dropped: None,
+                                    messages_compacted: None,
+                                    summary_chars: None,
+                                    active_messages: None,
+                                },
+                            );
                             break;
                         }
                         log_agent_provider_stream_lifecycle(
@@ -752,12 +787,15 @@ impl Agent {
                 || usage_cache_read.is_some()
                 || usage_cache_creation.is_some()
             {
-                let _ = event_tx.send(ServerEvent::TokenUsage {
-                    input: usage_input.unwrap_or(0),
-                    output: usage_output.unwrap_or(0),
-                    cache_read_input: usage_cache_read,
-                    cache_creation_input: usage_cache_creation,
-                });
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::TokenUsage {
+                        input: usage_input.unwrap_or(0),
+                        output: usage_output.unwrap_or(0),
+                        cache_read_input: usage_cache_read,
+                        cache_creation_input: usage_cache_creation,
+                    },
+                );
             }
 
             // Store usage for debug queries
@@ -776,21 +814,33 @@ impl Agent {
                 && let Some(tc) = tool_calls.last()
                 && tc.id.starts_with("fallback_text_call_")
             {
-                let _ = event_tx.send(ServerEvent::TextReplace {
-                    text: text_content.clone(),
-                });
-                let _ = event_tx.send(ServerEvent::ToolStart {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                });
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::TextReplace {
+                        text: text_content.clone(),
+                    },
+                );
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::ToolStart {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                    },
+                );
                 tool_id_to_name.insert(tc.id.clone(), tc.name.clone());
-                let _ = event_tx.send(ServerEvent::ToolInput {
-                    delta: tc.input.to_string(),
-                });
-                let _ = event_tx.send(ServerEvent::ToolExec {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                });
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::ToolInput {
+                        delta: tc.input.to_string(),
+                    },
+                );
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::ToolExec {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                    },
+                );
             }
 
             // Add assistant message to history
@@ -871,7 +921,7 @@ impl Agent {
                     NoToolCallOutcome::ContinueWithoutEvent => continue,
                     NoToolCallOutcome::ContinueWithSoftInterrupt { injected, point } => {
                         for event in Self::build_soft_interrupt_events(injected, point, None) {
-                            let _ = event_tx.send(event);
+                            super::streaming::emit_best_effort_mpsc(&event_tx, event);
                         }
                         continue;
                     }
@@ -945,7 +995,7 @@ impl Agent {
                         for event in
                             Self::build_soft_interrupt_events(injected, "C", Some(tools_remaining))
                         {
-                            let _ = event_tx.send(event);
+                            super::streaming::emit_best_effort_mpsc(&event_tx, event);
                         }
                         // Add note about skipped tools for the AI
                         self.add_message(
@@ -970,12 +1020,15 @@ impl Agent {
 
                 if let Some(error_msg) = tc.validation_error() {
                     logging::warn(&error_msg);
-                    let _ = event_tx.send(ServerEvent::ToolDone {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        output: error_msg.clone(),
-                        error: Some(error_msg.clone()),
-                    });
+                    super::streaming::emit_best_effort_mpsc(
+                        &event_tx,
+                        ServerEvent::ToolDone {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            output: error_msg.clone(),
+                            error: Some(error_msg.clone()),
+                        },
+                    );
                     self.add_message(
                         Role::User,
                         vec![ContentBlock::ToolResult {
@@ -1097,12 +1150,15 @@ impl Agent {
                     match result {
                         Ok(output) => {
                             let output = cap_tool_output_for_history(&tc.name, output);
-                            let _ = event_tx.send(ServerEvent::ToolDone {
-                                id: tc.id.clone(),
-                                name: tc.name.clone(),
-                                output: output.output.clone(),
-                                error: None,
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::ToolDone {
+                                    id: tc.id.clone(),
+                                    name: tc.name.clone(),
+                                    output: output.output.clone(),
+                                    error: None,
+                                },
+                            );
 
                             let blocks = tool_output_to_content_blocks(tc.id.clone(), output);
                             self.add_message_with_duration(
@@ -1114,12 +1170,15 @@ impl Agent {
                         }
                         Err(e) => {
                             let error_msg = format!("Error: {}", e);
-                            let _ = event_tx.send(ServerEvent::ToolDone {
-                                id: tc.id.clone(),
-                                name: tc.name.clone(),
-                                output: error_msg.clone(),
-                                error: Some(error_msg.clone()),
-                            });
+                            super::streaming::emit_best_effort_mpsc(
+                                &event_tx,
+                                ServerEvent::ToolDone {
+                                    id: tc.id.clone(),
+                                    name: tc.name.clone(),
+                                    output: error_msg.clone(),
+                                    error: Some(error_msg.clone()),
+                                },
+                            );
 
                             self.add_message_with_duration(
                                 Role::User,
@@ -1148,16 +1207,19 @@ impl Agent {
                     let (interrupted_msg, is_error) =
                         reload_interrupted_tool_result(tc, tool_elapsed.as_secs_f64());
 
-                    let _ = event_tx.send(ServerEvent::ToolDone {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        output: interrupted_msg.clone(),
-                        error: if is_error {
-                            Some("interrupted by reload".to_string())
-                        } else {
-                            None
+                    super::streaming::emit_best_effort_mpsc(
+                        &event_tx,
+                        ServerEvent::ToolDone {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            output: interrupted_msg.clone(),
+                            error: if is_error {
+                                Some("interrupted by reload".to_string())
+                            } else {
+                                None
+                            },
                         },
-                    });
+                    );
 
                     self.add_message_with_duration(
                         Role::User,
@@ -1246,7 +1308,7 @@ impl Agent {
                 self.take_post_tool_soft_interrupt()
             {
                 for event in Self::build_soft_interrupt_events(injected, point, None) {
-                    let _ = event_tx.send(event);
+                    super::streaming::emit_best_effort_mpsc(&event_tx, event);
                 }
             }
         }

@@ -8,8 +8,6 @@
 
 use crate::memory_graph::{GRAPH_VERSION, MemoryGraph};
 use crate::memory_types::{
-    InjectedMemoryItem, MemoryActivity, MemoryEvent, MemoryEventKind, MemoryState, StepResult,
-    StepStatus,
     ranking::{top_k_by_ord, top_k_by_score},
 };
 use crate::sidecar::Sidecar;
@@ -36,6 +34,13 @@ pub use crate::memory_types::{
 use crate::memory_types::{
     collect_skill_query_terms, format_entries_for_prompt, memory_matches_search, memory_score,
     normalize_memory_search_text, normalize_search_text, skill_retrieval_bonus,
+};
+// Re-export the lifted runtime activity types (source of truth now in activity.rs submodule)
+// so that `crate::memory::MemoryActivity` etc resolve, and the memory_types.rs shim can
+// re-export them for TUI compat without touching forbidden files.
+pub use activity::{
+    InjectedMemoryItem, MemoryActivity, MemoryEvent, MemoryEventKind, MemoryState, PipelineState,
+    StepResult, StepStatus,
 };
 pub use activity::{
     activity_snapshot, add_event, apply_remote_activity_snapshot, check_staleness, clear_activity,

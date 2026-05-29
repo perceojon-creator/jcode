@@ -30,11 +30,13 @@ pub use jcode_compaction_core::{
     CHARS_PER_TOKEN, COMPACTION_THRESHOLD, CRITICAL_THRESHOLD, CompactionAction, CompactionEvent,
     CompactionStats, DEFAULT_TOKEN_BUDGET, EMBED_MAX_CHARS_PER_MSG, EMBEDDING_HISTORY_WINDOW,
     EMERGENCY_TOOL_RESULT_MAX_CHARS, MANUAL_COMPACT_MIN_THRESHOLD, MIN_TURNS_TO_KEEP,
-    RECENT_TURNS_TO_KEEP, SEMANTIC_EMBED_CACHE_CAPACITY, SUMMARY_PROMPT, SYSTEM_OVERHEAD_TOKENS,
-    Summary, TOKEN_HISTORY_WINDOW, build_compaction_prompt, build_emergency_summary_text,
+    PureSummarizer, RECENT_TURNS_TO_KEEP, SEMANTIC_EMBED_CACHE_CAPACITY, SUMMARY_PROMPT,
+    Summary, SummaryDraft, Summarizer, SYSTEM_OVERHEAD_TOKENS, TOKEN_HISTORY_WINDOW, TokenBudget,
+    TurnContext, build_compaction_prompt, build_emergency_summary_text,
     compacted_summary_text_block, content_char_count, emergency_truncate_tool_results,
     estimate_compaction_tokens, mean_embedding, message_char_count, safe_compaction_cutoff,
-    semantic_cache_key, semantic_goal_text, semantic_message_text, summary_payload_char_count,
+    semantic_cache_key, semantic_goal_text, semantic_message_text, summarize_turn,
+    summary_payload_char_count,
 };
 
 /// Result from background compaction task
@@ -1437,6 +1439,26 @@ impl Default for CompactionManager {
     }
 }
 
+/// Tiny injection seam for the artifact generation path in the monolith.
+/// Extracts the pure "build artifact from summary" construction.
+/// Provider calls stay here; this fn is the narrow seam for future
+/// injection / overriding of artifact shaping (no behavior change today).
+fn build_compaction_artifact_from_summary(
+    summary_text: String,
+    openai_encrypted_content: Option<String>,
+    covers_up_to_turn: usize,
+    duration_ms: u64,
+    summarized_messages: usize,
+) -> CompactionResult {
+    CompactionResult {
+        summary_text,
+        openai_encrypted_content,
+        covers_up_to_turn,
+        duration_ms,
+        summarized_messages,
+    }
+}
+
 /// Generate summary using the provider
 async fn generate_compaction_artifact(
     provider: Arc<dyn Provider>,
@@ -1486,13 +1508,13 @@ async fn generate_compaction_artifact(
                 encrypted_content.len(),
             ));
         } else {
-            return Ok(CompactionResult {
-                summary_text: native.summary_text.unwrap_or_default(),
-                openai_encrypted_content: native.openai_encrypted_content,
-                covers_up_to_turn: messages.len(),
-                duration_ms: start.elapsed().as_millis() as u64,
-                summarized_messages: messages.len(),
-            });
+            return Ok(build_compaction_artifact_from_summary(
+                native.summary_text.unwrap_or_default(),
+                native.openai_encrypted_content,
+                messages.len(),
+                start.elapsed().as_millis() as u64,
+                messages.len(),
+            ));
         }
     }
 
@@ -1507,13 +1529,13 @@ async fn generate_compaction_artifact(
         )
         .await?;
 
-    Ok(CompactionResult {
-        summary_text: summary,
-        openai_encrypted_content: None,
-        covers_up_to_turn: messages.len(),
-        duration_ms: start.elapsed().as_millis() as u64,
-        summarized_messages: messages.len(),
-    })
+    Ok(build_compaction_artifact_from_summary(
+        summary,
+        None,
+        messages.len(),
+        start.elapsed().as_millis() as u64,
+        messages.len(),
+    ))
 }
 
 pub async fn build_transfer_compaction_state(

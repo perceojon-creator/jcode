@@ -63,6 +63,91 @@ pub struct Summary {
     pub original_turn_count: usize,
 }
 
+/// Token budget (in tokens) for summarization / compaction decisions.
+/// Pure value type for the behavioral seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TokenBudget(pub usize);
+
+impl TokenBudget {
+    pub fn new(n: usize) -> Self {
+        Self(n)
+    }
+}
+
+/// Pure data carrier describing the turn(s) to be summarized.
+/// Does not own runtime state; used by the Summarizer seam.
+#[derive(Debug, Clone, Default)]
+pub struct TurnContext {
+    /// Messages in the turn range being considered for summarization.
+    pub messages: Vec<Message>,
+    /// Optional text of a prior summary to fold into the new one.
+    pub prior_summary: Option<String>,
+}
+
+/// Draft output from pure summarization logic (prompt construction + estimates).
+/// The actual LLM-generated summary text is supplied later by monolith provider path.
+#[derive(Debug, Clone)]
+pub struct SummaryDraft {
+    /// The prompt that would be (or was) sent to the model for summarization.
+    pub prompt: String,
+    /// Token estimate for the active content under the given budget.
+    pub estimated_tokens: usize,
+    /// How many turns this draft conceptually covers.
+    pub covers_turn_count: usize,
+}
+
+/// First real behavioral seam: pure Summarizer abstraction.
+/// The provided `summarize_turn` (and PureSummarizer impl) use only
+/// existing prompt builders + token estimators from this crate.
+/// Provider calls and stateful orchestration remain in the monolith
+/// (src/compaction.rs) for now. This is a safe, additive seam per
+/// SERVER_SERVICE_SPLIT_PLAN principles (small moves, no behavior change).
+pub trait Summarizer {
+    fn summarize_turn(&self, turn: &TurnContext, budget: TokenBudget) -> SummaryDraft;
+}
+
+/// Concrete pure implementation of the Summarizer seam.
+pub struct PureSummarizer;
+
+impl Summarizer for PureSummarizer {
+    fn summarize_turn(&self, turn: &TurnContext, budget: TokenBudget) -> SummaryDraft {
+        let existing = turn.prior_summary.as_ref().map(|text| Summary {
+            text: text.clone(),
+            openai_encrypted_content: None,
+            covers_up_to_turn: 0,
+            original_turn_count: 0,
+        });
+
+        // Conservative max prompt chars derived from budget (actual provider
+        // context window logic stays in monolith callers).
+        let max_prompt_chars = budget
+            .0
+            .saturating_mul(CHARS_PER_TOKEN)
+            .max(1024);
+
+        let prompt = build_compaction_prompt(
+            &turn.messages,
+            existing.as_ref(),
+            max_prompt_chars,
+        );
+
+        let active_chars: usize = turn.messages.iter().map(message_char_count).sum();
+        let estimated_tokens = estimate_compaction_tokens_from_chars(active_chars, budget.0);
+
+        SummaryDraft {
+            prompt,
+            estimated_tokens,
+            covers_turn_count: turn.messages.len(),
+        }
+    }
+}
+
+/// Convenience pure fn (the direct entry point for the Summarizer seam).
+/// Delegates to PureSummarizer. Zero behavior change for existing callers.
+pub fn summarize_turn(turn: &TurnContext, budget: TokenBudget) -> SummaryDraft {
+    PureSummarizer.summarize_turn(turn, budget)
+}
+
 /// Event emitted when compaction is applied
 #[derive(Debug, Clone)]
 pub struct CompactionEvent {
@@ -643,5 +728,35 @@ mod tests {
         let truncated = emergency_truncated_tool_result(&original, 25);
         assert!(truncated.contains("chars truncated for context recovery"));
         assert!(truncated.is_char_boundary(truncated.len()));
+    }
+
+    #[test]
+    fn summarize_turn_pure_seam_uses_existing_builders_and_estimators() {
+        // Exercises the first behavioral seam (Summarizer / summarize_turn)
+        // purely via prompt builders + token estimators. No provider involved.
+        let turn = TurnContext {
+            messages: vec![
+                Message::user("We are editing src/compaction.rs for the seam."),
+                Message {
+                    role: Role::Assistant,
+                    content: vec![ContentBlock::Text {
+                        text: "Added TokenBudget and SummaryDraft.".to_string(),
+                        cache_control: None,
+                    }],
+                    timestamp: None,
+                    tool_duration_ms: None,
+                },
+            ],
+            prior_summary: Some("Prior work on purity boundary.".to_string()),
+        };
+        let draft = summarize_turn(&turn, TokenBudget::new(8_000));
+        assert!(!draft.prompt.is_empty());
+        assert!(draft.prompt.contains("Prior work on purity boundary."));
+        assert!(draft.prompt.contains(SUMMARY_PROMPT));
+        assert!(draft.estimated_tokens > 0);
+        assert_eq!(draft.covers_turn_count, 2);
+        // Also exercise the trait path
+        let via_trait: SummaryDraft = PureSummarizer.summarize_turn(&turn, TokenBudget(4_000));
+        assert!(!via_trait.prompt.is_empty());
     }
 }

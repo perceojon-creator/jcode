@@ -27,7 +27,7 @@ impl DebugJobStatus {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct DebugJob {
+pub(crate) struct DebugJob {
     pub(super) id: String,
     pub(super) status: DebugJobStatus,
     pub(super) command: String,

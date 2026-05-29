@@ -253,12 +253,7 @@ fn diff_lines_for_message(msg: Option<&DisplayMessage>) -> Vec<ParsedDiffLine> {
         return Vec::new();
     };
 
-    let from_content = collect_diff_lines(&msg.content);
-    if !from_content.is_empty() {
-        from_content
-    } else {
-        generate_diff_lines_from_tool_input(tc)
-    }
+    edit_change_lines_for_tool(tc, &msg.content)
 }
 
 fn build_file_diff_cache_entry(

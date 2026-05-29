@@ -1,6 +1,12 @@
 use std::process::Command;
 
 fn main() {
+    // Increase main thread stack reservation on Windows to mitigate debug-profile
+    // stack overflows (0xC00000FD). Mirrors the root crate fix in build.rs.
+    // Debug builds have larger stack frames; 16 MiB is a safe conservative value.
+    #[cfg(target_os = "windows")]
+    println!("cargo:rustc-link-arg=/STACK:0x1000000");
+
     let pkg_version = env!("CARGO_PKG_VERSION");
     let git_hash = git_output(["rev-parse", "--short", "HEAD"])
         .filter(|value| !value.is_empty())

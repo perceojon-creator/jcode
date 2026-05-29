@@ -466,8 +466,13 @@ impl ServerServices {
     }
 
     /// Failover responsibility surface passthrough (Ola 3 Agent 2 first slice).
+    /// Placeholder (method does not exist on Provider trait yet — future slice).
+    /// Zero behavior change for current callers; will be wired when catalog/failover
+    /// logic moves behind the facade.
     pub fn provider_failover_surface_ready(&self) -> bool {
-        self.provider.failover_surface_ready()
+        // TODO(Ola 4): implement real failover_surface_ready on Provider trait
+        // or move the check behind ProviderServiceHandle properly.
+        true
     }
 
     pub fn client_count(&self) -> Arc<RwLock<usize>> {

@@ -1,5 +1,7 @@
 use crate::{message::ToolCall, tui::ui::tools_ui};
+use jcode_tui_style::theme::dim_color;
 use ratatui::prelude::*;
+use crate::tui::markdown;
 
 pub(super) fn diff_add_color() -> Color {
     Color::Rgb(100, 200, 100)
@@ -333,6 +335,173 @@ pub(super) fn tint_span_with_diff_color(span: Span<'static>, diff_color: Color) 
 
     let tinted = Color::Rgb(blend(sr, dr), blend(sg, dg), blend(sb, db));
     Span::styled(span.content, span.style.fg(tinted))
+}
+
+/// Shared pure collection helper (promoted from ui_messages per Ola 2 seam promotion).
+///
+/// Deduplicates the "try collect_diff_lines from content first (the parsed
+/// +/- lines already present in the tool output), else fall back to
+/// generate_diff_lines_from_tool_input (synthesizes from old/new or patch_text
+/// in the ToolCall input)" pattern.
+///
+/// Now lives in ui_diff.rs (pub(super)) so ui_messages, ui_pinned, and ui_file_diff
+/// all delegate to the single implementation (zero dupe, identical behavior).
+pub(super) const MAX_INLINE_DIFF_LINES: usize = 12;
+
+pub(super) fn edit_change_lines_for_tool(tc: &ToolCall, content: &str) -> Vec<ParsedDiffLine> {
+    let from_content = collect_diff_lines(content);
+    if !from_content.is_empty() {
+        from_content
+    } else {
+        generate_diff_lines_from_tool_input(tc)
+    }
+}
+
+/// Renders the inline edit diff block (┌─ header, bordered change lines with
+/// syntax highlight tinted by add/del colors, truncation "… more changes …"
+/// for non-full-inline when exceeding MAX_INLINE_DIFF_LINES, and └─ footer)
+/// for edit/multiedit/patch/apply_patch tools under inline diff modes.
+///
+/// Promoted to ui_diff.rs (pub(super)) during Ola 2 TUI seam promotion for
+/// reusability alongside the change_lines collector (used by messages render
+/// + potentially other diff views). Delegates to ui_diff collectors + markdown
+/// highlight + tint. Behavior 100% identical to prior private impl.
+/// No App state, no mutation.
+pub(super) fn render_edit_diff_block(
+    tc: &ToolCall,
+    content: &str,
+    width: u16,
+    full_inline: bool,
+) -> Vec<Line<'static>> {
+    let file_path_for_ext = tc
+        .input
+        .get("file_path")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            tc.input
+                .get("patch_text")
+                .and_then(|v| v.as_str())
+                .and_then(|patch_text| match tools_ui::canonical_tool_name(&tc.name) {
+                    "apply_patch" => tools_ui::extract_apply_patch_primary_file(patch_text),
+                    "patch" => tools_ui::extract_unified_patch_primary_file(patch_text),
+                    _ => None,
+                })
+        });
+    let file_ext = file_path_for_ext
+        .as_deref()
+        .and_then(|p| std::path::Path::new(p).extension())
+        .and_then(|e| e.to_str());
+
+    let change_lines = edit_change_lines_for_tool(tc, content);
+
+    const MAX_DIFF_LINES: usize = MAX_INLINE_DIFF_LINES;
+    let total_changes = change_lines.len();
+    let additions = change_lines
+        .iter()
+        .filter(|line| line.kind == DiffLineKind::Add)
+        .count();
+    let deletions = change_lines
+        .iter()
+        .filter(|line| line.kind == DiffLineKind::Del)
+        .count();
+
+    let (display_lines, truncated, half_point): (Vec<&ParsedDiffLine>, bool, usize) =
+        if full_inline || total_changes <= MAX_DIFF_LINES {
+            (change_lines.iter().collect(), false, usize::MAX)
+        } else {
+            let half = MAX_DIFF_LINES / 2;
+            let mut result: Vec<&ParsedDiffLine> = change_lines.iter().take(half).collect();
+            result.extend(change_lines.iter().skip(total_changes - half));
+            (result, true, half)
+        };
+
+    let pad_str = "";
+
+    let mut out: Vec<Line<'static>> = Vec::new();
+
+    out.push(
+        Line::from(Span::styled(
+            format!("{}┌─ diff", pad_str),
+            Style::default().fg(dim_color()),
+        ))
+        .alignment(ratatui::layout::Alignment::Left),
+    );
+
+    let mut shown_truncation = false;
+
+    for (i, line) in display_lines.iter().enumerate() {
+        if truncated && !shown_truncation && i >= half_point {
+            let skipped = total_changes - MAX_DIFF_LINES;
+            out.push(
+                Line::from(Span::styled(
+                    format!("{}│ ... {} more changes ...", pad_str, skipped),
+                    Style::default().fg(dim_color()),
+                ))
+                .alignment(ratatui::layout::Alignment::Left),
+            );
+            shown_truncation = true;
+        }
+
+        let base_color = if line.kind == DiffLineKind::Add {
+            diff_add_color()
+        } else {
+            diff_del_color()
+        };
+
+        let border_prefix = format!("{}│ ", pad_str);
+        let prefix_visual_width = unicode_width::UnicodeWidthStr::width(border_prefix.as_str())
+            + unicode_width::UnicodeWidthStr::width(line.prefix.as_str());
+        let max_content_width = (width as usize).saturating_sub(prefix_visual_width + 1);
+
+        let mut spans: Vec<Span<'static>> = vec![
+            Span::styled(border_prefix, Style::default().fg(dim_color())),
+            Span::styled(line.prefix.clone(), Style::default().fg(base_color)),
+        ];
+
+        if !line.content.is_empty() {
+            let content = &line.content;
+            let content_vis_width = unicode_width::UnicodeWidthStr::width(content.as_str());
+            if !full_inline && max_content_width > 1 && content_vis_width > max_content_width {
+                let mut end = 0;
+                let mut vis_w = 0;
+                let limit = max_content_width.saturating_sub(1);
+                for (i, ch) in content.char_indices() {
+                    let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                    if vis_w + cw > limit {
+                        break;
+                    }
+                    vis_w += cw;
+                    end = i + ch.len_utf8();
+                }
+                let truncated = &content[..end];
+                let highlighted = markdown::highlight_line(truncated, file_ext);
+                for span in highlighted {
+                    spans.push(tint_span_with_diff_color(span, base_color));
+                }
+                spans.push(Span::styled("…", Style::default().fg(dim_color())));
+            } else {
+                let highlighted = markdown::highlight_line(content.as_str(), file_ext);
+                for span in highlighted {
+                    spans.push(tint_span_with_diff_color(span, base_color));
+                }
+            }
+        }
+
+        out.push(Line::from(spans).alignment(ratatui::layout::Alignment::Left));
+    }
+
+    let footer = if total_changes > 0 && truncated {
+        format!("{}└─ (+{} -{} total)", pad_str, additions, deletions)
+    } else {
+        format!("{}└─", pad_str)
+    };
+    out.push(
+        Line::from(Span::styled(footer, Style::default().fg(dim_color())))
+            .alignment(ratatui::layout::Alignment::Left),
+    );
+
+    out
 }
 
 #[cfg(test)]

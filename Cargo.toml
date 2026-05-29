@@ -104,7 +104,7 @@ async-trait = "0.1"
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "stream", "blocking"] }
-rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+rustls = { version = "0.23", default-features = false }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 
 # Serialization
@@ -255,6 +255,11 @@ codegen-units = 256
 incremental = true
 
 [profile.selfdev]
+# Self-dev iteration profile (used for `build --profile selfdev` of the main binary).
+# Faster compile than release (opt-level 0) while producing runnable artifacts for reload testing.
+# Local machines may further override via .cargo/config.toml (e.g. codegen-units, debug).
+# IMPORTANT: This profile is for *builds*, not daily `cargo check` loops.
+# See .cargo/config.toml for usage notes and why `cargo check --profile selfdev` is not recommended.
 inherits = "release"
 opt-level = 0
 

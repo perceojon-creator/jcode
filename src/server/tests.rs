@@ -487,7 +487,7 @@ async fn startup_recovery_resumes_interrupted_headless_sessions_after_reload() -
 
     let server = Server::new(provider.clone());
     {
-        let members = server.swarm_state.members.read().await;
+        let members = server.services.swarm.swarm_state.members.read().await;
         assert_eq!(
             members
                 .get(&initiator.id)
@@ -505,7 +505,7 @@ async fn startup_recovery_resumes_interrupted_headless_sessions_after_reload() -
 
     timeout(Duration::from_secs(5), async {
         loop {
-            let sessions = server.sessions.read().await;
+            let sessions = server.services.session.sessions.read().await;
             let Some(initiator_agent) = sessions.get(&initiator.id).cloned() else {
                 drop(sessions);
                 tokio::time::sleep(Duration::from_millis(25)).await;
@@ -533,7 +533,7 @@ async fn startup_recovery_resumes_interrupted_headless_sessions_after_reload() -
                 })
             };
             let statuses_ready = {
-                let members = server.swarm_state.members.read().await;
+                let members = server.services.swarm.swarm_state.members.read().await;
                 members
                     .get(&initiator.id)
                     .map(|member| member.status.as_str())
@@ -624,7 +624,7 @@ async fn startup_recovery_preserves_headed_session_reload_context_for_later_reco
 
     timeout(Duration::from_secs(5), async {
         loop {
-            let sessions = server.sessions.read().await;
+            let sessions = server.services.session.sessions.read().await;
             let Some(headless_agent) = sessions.get(&headless.id).cloned() else {
                 drop(sessions);
                 tokio::time::sleep(Duration::from_millis(25)).await;

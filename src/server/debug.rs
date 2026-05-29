@@ -34,17 +34,18 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+use super::handles::ServerServices;
 
 type ChannelSubscriptions = Arc<RwLock<HashMap<String, HashMap<String, HashSet<String>>>>>;
 
 #[derive(Default)]
-pub(super) struct ClientDebugState {
+pub(crate) struct ClientDebugState {
     pub(super) active_id: Option<String>,
     pub(super) clients: HashMap<String, mpsc::UnboundedSender<(u64, String)>>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ClientConnectionInfo {
+pub(crate) struct ClientConnectionInfo {
     pub(super) client_id: String,
     pub(super) session_id: String,
     pub(super) client_instance_id: Option<String>,
@@ -240,39 +241,42 @@ pub(super) async fn inject_transcript(
     Ok(ServerEvent::Done { id })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "debug client wiring fans out across sessions, swarms, files, channels, jobs, and transport state"
-)]
 pub(super) async fn handle_debug_client(
     stream: Stream,
-    sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
-    is_processing: Arc<RwLock<bool>>,
-    session_id: Arc<RwLock<String>>,
-    provider: Arc<dyn Provider>,
-    client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
-    swarm_members: Arc<RwLock<HashMap<String, SwarmMember>>>,
-    swarms_by_id: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-    shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
-    swarm_plans: Arc<RwLock<HashMap<String, VersionedPlan>>>,
-    swarm_coordinators: Arc<RwLock<HashMap<String, String>>>,
-    file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
-    files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
-    channel_subscriptions: ChannelSubscriptions,
-    channel_subscriptions_by_session: ChannelSubscriptions,
-    client_debug_state: Arc<RwLock<ClientDebugState>>,
-    client_debug_response_tx: broadcast::Sender<(u64, String)>,
-    debug_jobs: Arc<RwLock<HashMap<String, DebugJob>>>,
-    event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
-    event_counter: Arc<std::sync::atomic::AtomicU64>,
-    swarm_event_tx: broadcast::Sender<SwarmEvent>,
-    server_identity: ServerIdentity,
+    services: ServerServices,
     server_start_time: std::time::Instant,
-    ambient_runner: Option<AmbientRunnerHandle>,
-    mcp_pool: Option<Arc<crate::mcp::SharedMcpPool>>,
-    shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
-    soft_interrupt_queues: super::SessionInterruptQueues,
 ) -> Result<()> {
+    // Ola 2 Agent 1 Move4: services bag sole conduit (SPLIT_PLAN Move 4 ref).
+    // Bindings for zero body edits below this point.
+    let sessions = Arc::clone(&services.session.sessions);
+    let is_processing = Arc::clone(&services.session.is_processing);
+    let session_id = Arc::clone(&services.session.session_id);
+    // First safe slice wiring (Ola 3 Agent 2): route provider access exclusively via the new
+    // ProviderServiceHandle facade (catalog/auth surface) instead of SessionServiceHandle's copy.
+    // Failover surface remains in provider impls for next slice. Zero behavior change.
+    let provider = services.provider().provider();
+    let client_connections = Arc::clone(&services.client.client_connections);
+    let swarm_members = services.swarm_members();
+    let swarms_by_id = services.swarms_by_id();
+    let shared_context = Arc::clone(&services.swarm.shared_context);
+    let swarm_plans = services.swarm_plans();
+    let swarm_coordinators = services.swarm_coordinators();
+    let file_touches = Arc::clone(&services.swarm.file_touches);
+    let files_touched_by_session = Arc::clone(&services.swarm.files_touched_by_session);
+    let channel_subscriptions = Arc::clone(&services.swarm.channel_subscriptions);
+    let channel_subscriptions_by_session = Arc::clone(&services.swarm.channel_subscriptions_by_session);
+    let client_debug_state = services.client_debug_state();
+    let client_debug_response_tx = services.client_debug_response_tx();
+    let debug_jobs = services.debug_jobs();
+    let event_history = services.event_history();
+    let event_counter = services.event_counter();
+    let swarm_event_tx = services.swarm_event_tx();
+    let server_identity = services.server_identity();
+    let ambient_runner = services.ambient_runner();
+    let mcp_pool = Some(services.get_mcp_pool().await);
+    let shutdown_signals = services.shutdown_signals();
+    let soft_interrupt_queues = services.soft_interrupt_queues();
+
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut line = String::new();

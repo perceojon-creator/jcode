@@ -38,8 +38,9 @@
 use super::info_widget;
 use super::markdown;
 use super::ui_diff::{
-    DiffLineKind, ParsedDiffLine, collect_diff_lines, diff_add_color, diff_change_counts_for_tool,
-    diff_del_color, generate_diff_lines_from_tool_input, tint_span_with_diff_color,
+    DiffLineKind, ParsedDiffLine, MAX_INLINE_DIFF_LINES, collect_diff_lines, diff_add_color,
+    diff_change_counts_for_tool, diff_del_color, edit_change_lines_for_tool,
+    generate_diff_lines_from_tool_input, render_edit_diff_block, tint_span_with_diff_color,
 };
 use super::visual_debug::{
     self, FrameCaptureBuilder, ImageRegionCapture, InfoWidgetCapture, MarginsCapture,

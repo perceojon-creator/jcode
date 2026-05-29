@@ -7,21 +7,23 @@
 jobs = 6
 
 # Optimized dev profile for quick iteration
+# This is the profile used by default `cargo check` / `cargo test` etc.
+# It is already tuned for fast feedback loops (opt-level 0 + high parallelism via [build] jobs).
 [profile.dev]
 opt-level = 0
 debug = false
 split-debuginfo = "unpacked"
 
-# Selfdev profile - balanced for development
+# Selfdev profile - for *build* iteration (not check).
+# Used via `cargo build --profile selfdev -p jcode --bin jcode` (or via dev_cargo.sh).
+# Purpose: faster-than-release binaries for self-dev reloads while keeping most features.
+# Inherits release (for certain defaults) but forces opt-level=0 + no lto.
+# NOTE: Do NOT use `cargo check --profile selfdev` for daily loops — it uses a separate
+# artifact cache (target/selfdev/) and is slower due to profile machinery + lower codegen-units.
+# Use plain `cargo check` (dev profile) instead. The dedicated "check" profile name is
+# reserved by Cargo and must not be defined.
 [profile.selfdev]
-inherits = "dev"
+inherits = "release"
 debug = false
 lto = false
-codegen-units = 16
-
-# Check profile - fastest possible for `cargo check`
-[profile.check]
-inherits = "dev"
-debug = false
-lto = false
-codegen-units = 64
+codegen-units = 64  # Raised from 16 for faster selfdev iteration builds (higher parallelism in codegen). Release keeps its own higher value. Low-mem override in dev_cargo.sh can force 256.

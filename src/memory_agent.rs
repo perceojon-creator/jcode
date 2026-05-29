@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use crate::embedding;
 use crate::memory::{self, MemoryEntry, MemoryManager};
 use crate::memory_graph::{ClusterEntry, EdgeKind, MemoryGraph};
-use crate::memory_types::{MemoryEventKind, MemoryState, StepResult, StepStatus};
+use crate::memory::{MemoryEventKind, MemoryState, StepResult, StepStatus};
 use crate::sidecar::Sidecar;
 
 /// Context from a retrieval operation for post-retrieval maintenance

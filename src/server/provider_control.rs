@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::items_after_test_module))]
 
 use crate::agent::Agent;
+use crate::agent::streaming::emit_best_effort_mpsc;
 use crate::auth::lifecycle::{AuthActivationRequest, AuthActivationResult};
 use crate::protocol::{AuthChanged, NotificationType, ServerEvent};
 use crate::provider::{ModelCatalogRefreshSummary, Provider};
@@ -9,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{Mutex, RwLock, mpsc};
+
+use super::handles::ProviderServiceHandle;
 
 type SessionAgents = Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>;
 
@@ -301,20 +304,26 @@ fn send_model_changed_result(
     match result {
         Ok((updated, provider_name)) => {
             crate::telemetry::record_model_switch();
-            let _ = client_event_tx.send(ServerEvent::ModelChanged {
-                id,
-                model: updated,
-                provider_name: Some(provider_name),
-                error: None,
-            });
+            emit_best_effort_mpsc(
+                client_event_tx,
+                ServerEvent::ModelChanged {
+                    id,
+                    model: updated,
+                    provider_name: Some(provider_name),
+                    error: None,
+                },
+            );
         }
         Err(error) => {
-            let _ = client_event_tx.send(ServerEvent::ModelChanged {
-                id,
-                model: fallback_model,
-                provider_name: None,
-                error: Some(error.to_string()),
-            });
+            emit_best_effort_mpsc(
+                client_event_tx,
+                ServerEvent::ModelChanged {
+                    id,
+                    model: fallback_model,
+                    provider_name: None,
+                    error: Some(error.to_string()),
+                },
+            );
         }
     }
 }
@@ -436,12 +445,15 @@ fn apply_set_model(
     client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
 ) {
     if let Some(current) = model_switching_unavailable_current(agent) {
-        let _ = client_event_tx.send(ServerEvent::ModelChanged {
-            id,
-            model: current,
-            provider_name: None,
-            error: Some("Model switching is not available for this provider.".to_string()),
-        });
+        emit_best_effort_mpsc(
+            client_event_tx,
+            ServerEvent::ModelChanged {
+                id,
+                model: current,
+                provider_name: None,
+                error: Some("Model switching is not available for this provider.".to_string()),
+            },
+        );
         return;
     }
 
@@ -486,6 +498,9 @@ pub(super) async fn handle_refresh_models(
     let provider_clone = provider.clone();
     let agent_clone = agent.clone();
     let client_event_tx_clone = client_event_tx.clone();
+    // Ola 3 Agent 2 wiring (first safe slice): use ProviderServiceHandle surface for catalog refresh path.
+    // This exercises the new refresh_model_catalog method in the provider_control path.
+    let provider_handle = ProviderServiceHandle::new(Arc::clone(&provider_clone));
     tokio::spawn(async move {
         send_catalog_activity(
             &client_event_tx_clone,
@@ -496,7 +511,7 @@ pub(super) async fn handle_refresh_models(
         );
 
         let refresh_started = Instant::now();
-        let refresh_future = provider_clone.refresh_model_catalog();
+        let refresh_future = provider_handle.refresh_model_catalog();
         tokio::pin!(refresh_future);
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(2));
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -529,7 +544,7 @@ pub(super) async fn handle_refresh_models(
                 );
                 crate::bus::Bus::global().publish_models_updated();
                 let event = available_models_updated_event(&agent_clone).await;
-                let _ = client_event_tx_clone.send(event);
+                emit_best_effort_mpsc(&client_event_tx_clone, event);
                 send_catalog_activity(
                     &client_event_tx_clone,
                     &crate::message::format_model_refresh_progress_markdown(
@@ -546,15 +561,18 @@ pub(super) async fn handle_refresh_models(
                         None,
                     ),
                 );
-                let _ = client_event_tx_clone.send(ServerEvent::Error {
-                    id,
-                    message: format!("Failed to refresh models: {}", err),
-                    retry_after_secs: None,
-                });
+                emit_best_effort_mpsc(
+                    &client_event_tx_clone,
+                    ServerEvent::Error {
+                        id,
+                        message: format!("Failed to refresh models: {}", err),
+                        retry_after_secs: None,
+                    },
+                );
             }
         }
     });
-    let _ = client_event_tx.send(ServerEvent::Done { id });
+    emit_best_effort_mpsc(client_event_tx, ServerEvent::Done { id });
 }
 
 fn send_catalog_activity(client_event_tx: &mpsc::UnboundedSender<ServerEvent>, message: &str) {

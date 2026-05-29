@@ -4,6 +4,27 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{self, MissedTickBehavior};
 
+/// Emit Best Effort Hygiene (Agent D) — highest-volume swallow site identification
+/// (from prior Error Auditor 2289 total + this targeted pass on agent/streaming + turn_* + provider paths).
+///
+/// The 3-5 highest-volume sites for ServerEvent fan-out swallows (and related provider streaming):
+/// 1. `src/agent/turn_streaming_mpsc.rs` — highest volume (~39 let_ pre-pass): dense clusters of
+///    ToolStart/ToolInput/ToolExec/ToolDone, TextDelta/TextReplace, Thinking*, Compaction recovery,
+///    TokenUsage, graceful-shutdown + interrupt batch sends. Direct provider response path for mpsc TUI.
+/// 2. `src/agent/turn_streaming_broadcast.rs` — symmetric high volume (~36 let_ pre-pass): identical
+///    event fan-outs over broadcast for multi-client server sessions (ConnectionPhase/StatusDetail etc).
+/// 3. `src/agent/streaming.rs` — the 2 canonical centralized `let _ =` inside the emit_* helpers
+///    (the single source-of-truth swallows after quickwin rollout; all prior inline ones migrate here).
+/// 4. Provider paths (e.g. `src/provider/gemini.rs:20+`, `src/provider/openrouter.rs`, `src/provider/copilot.rs:18`,
+///    `src/provider/openai_stream_runtime.rs`, `src/provider/openrouter_sse_stream.rs`, `src/provider/anthropic.rs` etc):
+///    High internal swallows for SSE framing, native_result channels, retry/phase sends, account failover.
+///    (Not all use ServerEvent; many use separate mpsc/broadcast or .ok(); addressed via per-provider best-effort.)
+/// 5. Interrupt + error ToolDone / recovery paths inside turn_streaming_* (high frequency under
+///    soft-interrupt, reload, context-limit, provider stream error load — batches + per-tool swallows).
+///
+/// All hot paths remain panic-free by design (pure fire-and-forget). Use only for non-critical UI/progress events.
+/// See Error Auditor + ORCHESTRATION_STATUS for full 2289 mapping.
+
 fn stream_keepalive_interval() -> Duration {
     if cfg!(test) {
         Duration::from_millis(50)
@@ -83,4 +104,45 @@ pub(crate) fn emit_best_effort_mpsc(
     // Best-effort / client-gone is expected and intentional for these events.
     // Subscriber disconnect or temporary lag must not stall a provider turn.
     let _ = event_tx.send(event);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::ServerEvent;
+
+    /// Targeted test for emit_best_effort helpers under error (closed channels) + load (many emissions).
+    /// Verifies panic-free behavior on hot path even when all subscribers are gone (the primary swallow case).
+    #[test]
+    fn emit_best_effort_helpers_silent_under_closed_channel_and_load() {
+        // Broadcast variant: drop receiver -> send would error; helper must swallow silently.
+        {
+            let (tx, rx) = broadcast::channel::<ServerEvent>(8);
+            drop(rx);
+            // Under load: many sends after close (simulates subscriber disconnect during bursty provider stream)
+            for i in 0..256u32 {
+                emit_best_effort_broadcast(
+                    &tx,
+                    ServerEvent::Pong {
+                        id: STREAM_KEEPALIVE_PONG_ID.wrapping_add(i),
+                    },
+                );
+            }
+            // No panic, all dropped. (If helper ever used .expect this would fail the test.)
+        }
+
+        // MPSC unbounded variant: same contract.
+        {
+            let (tx, rx) = mpsc::unbounded_channel::<ServerEvent>();
+            drop(rx);
+            for i in 0..256u32 {
+                emit_best_effort_mpsc(
+                    &tx,
+                    ServerEvent::Pong {
+                        id: STREAM_KEEPALIVE_PONG_ID.wrapping_add(i),
+                    },
+                );
+            }
+        }
+    }
 }

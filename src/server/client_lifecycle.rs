@@ -51,6 +51,7 @@ use super::{
     truncate_detail, update_member_status, update_member_status_with_report,
 };
 use crate::agent::Agent;
+use crate::agent::streaming::emit_best_effort_mpsc;
 use crate::bus::{Bus, BusEvent};
 use crate::id;
 use crate::protocol::{Request, ServerEvent, decode_request, encode_event};
@@ -69,6 +70,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+use super::handles::ServerServices;
 
 type SessionAgents = Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>;
 type ChannelSubscriptions = Arc<RwLock<HashMap<String, HashMap<String, HashSet<String>>>>>;
@@ -211,13 +213,16 @@ fn reject_if_agent_busy_for_request(
             ("reason", "agent_busy".to_string()),
         ],
     );
-    let _ = client_event_tx.send(ServerEvent::Error {
-        id: request_id,
-        message: format!(
-            "Cannot handle {request_kind} while the session is busy. Try again after the current turn finishes."
-        ),
-        retry_after_secs: Some(1),
-    });
+    emit_best_effort_mpsc(
+        client_event_tx,
+        ServerEvent::Error {
+            id: request_id,
+            message: format!(
+                "Cannot handle {request_kind} while the session is busy. Try again after the current turn finishes."
+            ),
+            retry_after_secs: Some(1),
+        },
+    );
     true
 }
 
@@ -297,41 +302,40 @@ async fn refresh_session_control_handle(
     )
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "client lifecycle wiring spans sessions, swarm state, file state, channels, debug, and runtime coordination"
-)]
 pub(super) async fn handle_client(
     stream: Stream,
-    sessions: SessionAgents,
-    _global_event_tx: broadcast::Sender<ServerEvent>,
-    provider_template: Arc<dyn Provider>,
-    _global_is_processing: Arc<RwLock<bool>>,
-    global_session_id: Arc<RwLock<String>>,
-    client_count: Arc<RwLock<usize>>,
-    client_connections: Arc<RwLock<HashMap<String, ClientConnectionInfo>>>,
-    swarm_members: Arc<RwLock<HashMap<String, SwarmMember>>>,
-    swarms_by_id: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-    shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
-    swarm_plans: Arc<RwLock<HashMap<String, VersionedPlan>>>,
-    swarm_coordinators: Arc<RwLock<HashMap<String, String>>>,
-    file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
-    files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
-    channel_subscriptions: ChannelSubscriptions,
-    channel_subscriptions_by_session: ChannelSubscriptions,
-    client_debug_state: Arc<RwLock<ClientDebugState>>,
-    client_debug_response_tx: broadcast::Sender<(u64, String)>,
-    event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
-    event_counter: Arc<std::sync::atomic::AtomicU64>,
-    swarm_event_tx: broadcast::Sender<SwarmEvent>,
-    server_name: String,
-    server_icon: String,
-    mcp_pool: Arc<crate::mcp::SharedMcpPool>,
-    shutdown_signals: Arc<RwLock<HashMap<String, InterruptSignal>>>,
-    soft_interrupt_queues: SessionInterruptQueues,
-    await_members_runtime: AwaitMembersRuntime,
-    swarm_mutation_runtime: SwarmMutationRuntime,
+    services: ServerServices,
 ) -> Result<()> {
+    // Ola 2 Agent 1 Move4 (SPLIT_PLAN Move 4): services bag is now the sole conduit.
+    // Legacy param names rebound here for zero churn in the 1700+ LOC body below.
+    // (2 cargo checks will follow this + runtime group.)
+    let sessions = Arc::clone(&services.session.sessions);
+    let provider_template = Arc::clone(&services.session.provider);
+    let global_session_id = Arc::clone(&services.session.session_id);
+    let client_count = Arc::clone(&services.client.client_count);
+    let client_connections = Arc::clone(&services.client.client_connections);
+    let swarm_members = services.swarm_members();
+    let swarms_by_id = services.swarms_by_id();
+    let shared_context = Arc::clone(&services.swarm.shared_context);
+    let swarm_plans = services.swarm_plans();
+    let swarm_coordinators = services.swarm_coordinators();
+    let file_touches = Arc::clone(&services.swarm.file_touches);
+    let files_touched_by_session = Arc::clone(&services.swarm.files_touched_by_session);
+    let channel_subscriptions = Arc::clone(&services.swarm.channel_subscriptions);
+    let channel_subscriptions_by_session = Arc::clone(&services.swarm.channel_subscriptions_by_session);
+    let client_debug_state = services.client_debug_state();
+    let client_debug_response_tx = services.client_debug_response_tx();
+    let event_history = services.event_history();
+    let event_counter = services.event_counter();
+    let swarm_event_tx = services.swarm_event_tx();
+    let server_name = services.server_name();
+    let server_icon = services.server_icon();
+    let mcp_pool = services.get_mcp_pool().await;
+    let shutdown_signals = services.shutdown_signals();
+    let soft_interrupt_queues = services.soft_interrupt_queues();
+    let await_members_runtime = services.await_members_runtime();
+    let swarm_mutation_runtime = services.swarm_mutation_runtime();
+
     let (reader, writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
@@ -676,7 +680,7 @@ pub(super) async fn handle_client(
                                 )
                                 .await;
                             }
-                            let _ = client_event_tx.send(ServerEvent::Done { id: done_id });
+                            emit_best_effort_mpsc(&client_event_tx, ServerEvent::Done { id: done_id });
                         }
                         Err(e) => {
                             if let Some(session_id) = done_session.as_deref() {
@@ -703,11 +707,14 @@ pub(super) async fn handle_client(
                                     crate::telemetry::record_error(crate::telemetry::ErrorCategory::AuthFailed);
                                 }
                             }
-                            let _ = client_event_tx.send(ServerEvent::Error {
-                                id: done_id,
-                                message: crate::util::format_error_chain(&e),
-                                retry_after_secs,
-                            });
+                            emit_best_effort_mpsc(
+                                &client_event_tx,
+                                ServerEvent::Error {
+                                    id: done_id,
+                                    message: crate::util::format_error_chain(&e),
+                                    retry_after_secs,
+                                },
+                            );
                         }
                     }
                 } else {
@@ -754,14 +761,17 @@ pub(super) async fn handle_client(
                     }
                     Ok(BusEvent::BatchProgress(progress)) => {
                         if progress.session_id == client_session_id {
-                            let _ = client_event_tx.send(ServerEvent::BatchProgress { progress });
+                            emit_best_effort_mpsc(&client_event_tx, ServerEvent::BatchProgress { progress });
                         }
                     }
                     Ok(BusEvent::SidePanelUpdated(update)) => {
                         if update.session_id == client_session_id {
-                            let _ = client_event_tx.send(ServerEvent::SidePanelState {
-                                snapshot: update.snapshot,
-                            });
+                            emit_best_effort_mpsc(
+                                &client_event_tx,
+                                ServerEvent::SidePanelState {
+                                    snapshot: update.snapshot,
+                                },
+                            );
                         }
                     }
                     Ok(BusEvent::CompactionFinished) => {

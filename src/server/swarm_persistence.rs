@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 const SWARM_STATE_DIR: &str = "jcode-swarm-state";
 
-pub(super) struct LoadedSwarmRuntimeState {
+pub(crate) struct LoadedSwarmRuntimeState {
     pub plans: HashMap<String, VersionedPlan>,
     pub coordinators: HashMap<String, String>,
     pub members: HashMap<String, SwarmMember>,

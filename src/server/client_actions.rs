@@ -9,6 +9,7 @@ use super::{
     update_member_status,
 };
 use crate::agent::Agent;
+use crate::agent::streaming::emit_best_effort_mpsc;
 use crate::protocol::{FeatureToggle, NotificationType, ServerEvent};
 use crate::session::Session;
 use crate::util::truncate_str;
@@ -208,13 +209,16 @@ pub(super) async fn handle_notify_session(
     };
 
     if ran_immediately || notified || queued_interrupt {
-        let _ = ctx.client_event_tx.send(ServerEvent::Done { id });
+        emit_best_effort_mpsc(ctx.client_event_tx, ServerEvent::Done { id });
     } else {
-        let _ = ctx.client_event_tx.send(ServerEvent::Error {
-            id,
-            message: format!("Session '{}' is not currently live", session_id),
-            retry_after_secs: None,
-        });
+        emit_best_effort_mpsc(
+            ctx.client_event_tx,
+            ServerEvent::Error {
+                id,
+                message: format!("Session '{}' is not currently live", session_id),
+                retry_after_secs: None,
+            },
+        );
     }
 }
 
@@ -267,8 +271,8 @@ pub(super) fn handle_input_shell(
             },
         };
 
-        let _ = tx.send(ServerEvent::InputShellResult { result });
-        let _ = tx.send(ServerEvent::Done { id });
+        emit_best_effort_mpsc(&tx, ServerEvent::InputShellResult { result });
+        emit_best_effort_mpsc(&tx, ServerEvent::Done { id });
     });
 }
 
@@ -281,14 +285,17 @@ pub(super) async fn handle_set_subagent_model(
     let mut agent_guard = agent.lock().await;
     match agent_guard.set_subagent_model(model) {
         Ok(()) => {
-            let _ = client_event_tx.send(ServerEvent::Done { id });
+            emit_best_effort_mpsc(client_event_tx, ServerEvent::Done { id });
         }
         Err(error) => {
-            let _ = client_event_tx.send(ServerEvent::Error {
-                id,
-                message: crate::util::format_error_chain(&error),
-                retry_after_secs: None,
-            });
+            emit_best_effort_mpsc(
+                client_event_tx,
+                ServerEvent::Error {
+                    id,
+                    message: crate::util::format_error_chain(&error),
+                    retry_after_secs: None,
+                },
+            );
         }
     }
 }
@@ -327,7 +334,7 @@ pub(super) fn handle_run_subagent(
             ) {
                 Ok(message_id) => message_id,
                 Err(error) => {
-                    let _ = tx.send(ServerEvent::Error {
+                    emit_best_effort_mpsc(&tx, ServerEvent::Error {
                         id,
                         message: crate::util::format_error_chain(&error),
                         retry_after_secs: None,
@@ -337,14 +344,14 @@ pub(super) fn handle_run_subagent(
             }
         };
 
-        let _ = tx.send(ServerEvent::ToolStart {
+        emit_best_effort_mpsc(&tx, ServerEvent::ToolStart {
             id: tool_call_id.clone(),
             name: tool_name.clone(),
         });
-        let _ = tx.send(ServerEvent::ToolInput {
+        emit_best_effort_mpsc(&tx, ServerEvent::ToolInput {
             delta: tool_input.to_string(),
         });
-        let _ = tx.send(ServerEvent::ToolExec {
+        emit_best_effort_mpsc(&tx, ServerEvent::ToolExec {
             id: tool_call_id.clone(),
             name: tool_name.clone(),
         });
@@ -383,7 +390,7 @@ pub(super) fn handle_run_subagent(
         match result {
             Ok(output) => {
                 let output_text = output.output.clone();
-                let _ = tx.send(ServerEvent::ToolDone {
+                emit_best_effort_mpsc(&tx, ServerEvent::ToolDone {
                     id: tool_call_id.clone(),
                     name: tool_name,
                     output: output_text,
@@ -394,18 +401,18 @@ pub(super) fn handle_run_subagent(
                     agent_guard.add_manual_tool_result(tool_call_id, output, duration_ms)
                 };
                 if let Err(error) = persist {
-                    let _ = tx.send(ServerEvent::Error {
+                    emit_best_effort_mpsc(&tx, ServerEvent::Error {
                         id,
                         message: crate::util::format_error_chain(&error),
                         retry_after_secs: None,
                     });
                     return;
                 }
-                let _ = tx.send(ServerEvent::Done { id });
+                emit_best_effort_mpsc(&tx, ServerEvent::Done { id });
             }
             Err(error) => {
                 let error_msg = format!("Error: {}", error);
-                let _ = tx.send(ServerEvent::ToolDone {
+                emit_best_effort_mpsc(&tx, ServerEvent::ToolDone {
                     id: tool_call_id.clone(),
                     name: tool_name,
                     output: error_msg.clone(),
@@ -416,14 +423,14 @@ pub(super) fn handle_run_subagent(
                     agent_guard.add_manual_tool_error(tool_call_id, error_msg, duration_ms)
                 };
                 if let Err(persist_error) = persist {
-                    let _ = tx.send(ServerEvent::Error {
+                    emit_best_effort_mpsc(&tx, ServerEvent::Error {
                         id,
                         message: crate::util::format_error_chain(&persist_error),
                         retry_after_secs: None,
                     });
                     return;
                 }
-                let _ = tx.send(ServerEvent::Done { id });
+                emit_best_effort_mpsc(&tx, ServerEvent::Done { id });
             }
         }
     });
