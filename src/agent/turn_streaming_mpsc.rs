@@ -64,17 +64,20 @@ impl Agent {
                         .map(|t| format!(" {} tokens", t))
                         .unwrap_or_default()
                 ));
-                let _ = event_tx.send(ServerEvent::Compaction {
-                    trigger: event.trigger.clone(),
-                    pre_tokens: event.pre_tokens,
-                    post_tokens: event.post_tokens,
-                    tokens_saved: event.tokens_saved,
-                    duration_ms: event.duration_ms,
-                    messages_dropped: None,
-                    messages_compacted: event.messages_compacted,
-                    summary_chars: event.summary_chars,
-                    active_messages: event.active_messages,
-                });
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::Compaction {
+                        trigger: event.trigger.clone(),
+                        pre_tokens: event.pre_tokens,
+                        post_tokens: event.post_tokens,
+                        tokens_saved: event.tokens_saved,
+                        duration_ms: event.duration_ms,
+                        messages_dropped: None,
+                        messages_compacted: event.messages_compacted,
+                        summary_chars: event.summary_chars,
+                        active_messages: event.active_messages,
+                    },
+                );
             }
 
             let tools = self.tool_definitions().await;
@@ -85,7 +88,7 @@ impl Agent {
                 Some(std::sync::Arc::new({
                     let event_tx = event_tx.clone();
                     move |event| {
-                        let _ = event_tx.send(event);
+                        super::streaming::emit_best_effort_mpsc(&event_tx, event);
                     }
                 })),
             );
@@ -117,13 +120,16 @@ impl Agent {
                     computed_age_ms,
                 );
                 self.record_memory_injection_in_session(memory);
-                let _ = event_tx.send(ServerEvent::MemoryInjected {
-                    count: memory_count,
-                    prompt: memory.prompt.clone(),
-                    display_prompt: memory.display_prompt.clone(),
-                    prompt_chars: memory.prompt.chars().count(),
-                    computed_age_ms,
-                });
+                super::streaming::emit_best_effort_mpsc(
+                    &event_tx,
+                    ServerEvent::MemoryInjected {
+                        count: memory_count,
+                        prompt: memory.prompt.clone(),
+                        display_prompt: memory.display_prompt.clone(),
+                        prompt_chars: memory.prompt.chars().count(),
+                        computed_age_ms,
+                    },
+                );
                 let (memory_msg, persisted) = self.prepare_memory_injection_message(memory);
                 if !persisted {
                     ephemeral_signature_messages.push(memory_msg.clone());
@@ -150,12 +156,15 @@ impl Agent {
             let provider = Arc::clone(&self.provider);
             let resume_session_id = self.provider_session_id.clone();
             self.last_status_detail = None;
-            let _ = event_tx.send(kv_cache_request_event(
-                &cache_signature_messages,
-                &tools,
-                &split_prompt.static_part,
-                &ephemeral_signature_messages,
-            ));
+            super::streaming::emit_best_effort_mpsc(
+                &event_tx,
+                kv_cache_request_event(
+                    &cache_signature_messages,
+                    &tools,
+                    &split_prompt.static_part,
+                    &ephemeral_signature_messages,
+                ),
+            );
             let mut keepalive = stream_keepalive_ticker();
             let mut stream = {
                 let mut complete_future = std::pin::pin!(provider.complete_split(
@@ -527,16 +536,25 @@ impl Agent {
                     StreamEvent::ConnectionType { connection } => {
                         crate::telemetry::record_connection_type(&connection);
                         self.last_connection_type = Some(connection.clone());
-                        let _ = event_tx.send(ServerEvent::ConnectionType { connection });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::ConnectionType { connection },
+                        );
                     }
                     StreamEvent::ConnectionPhase { phase } => {
-                        let _ = event_tx.send(ServerEvent::ConnectionPhase {
-                            phase: phase.to_string(),
-                        });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::ConnectionPhase {
+                                phase: phase.to_string(),
+                            },
+                        );
                     }
                     StreamEvent::StatusDetail { detail } => {
                         self.last_status_detail = Some(detail.clone());
-                        let _ = event_tx.send(ServerEvent::StatusDetail { detail });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::StatusDetail { detail },
+                        );
                     }
                     StreamEvent::MessageEnd {
                         stop_reason: reason,
@@ -545,12 +563,15 @@ impl Agent {
                         if reason.is_some() {
                             stop_reason = reason;
                         }
-                        let _ = event_tx.send(ServerEvent::MessageEnd);
+                        super::streaming::emit_best_effort_mpsc(&event_tx, ServerEvent::MessageEnd);
                     }
                     StreamEvent::SessionId(sid) => {
                         self.provider_session_id = Some(sid.clone());
                         self.session.provider_session_id = Some(sid.clone());
-                        let _ = event_tx.send(ServerEvent::SessionId { session_id: sid });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::SessionId { session_id: sid },
+                        );
                     }
                     StreamEvent::OpenAIReasoning {
                         id,
@@ -609,7 +630,10 @@ impl Agent {
                     }
                     StreamEvent::UpstreamProvider { provider } => {
                         self.last_upstream_provider = Some(provider.clone());
-                        let _ = event_tx.send(ServerEvent::UpstreamProvider { provider });
+                        super::streaming::emit_best_effort_mpsc(
+                            &event_tx,
+                            ServerEvent::UpstreamProvider { provider },
+                        );
                     }
                     StreamEvent::Error {
                         message,

@@ -31,17 +31,20 @@ impl Agent {
                         .map(|t| format!(" {} tokens", t))
                         .unwrap_or_default()
                 ));
-                let _ = event_tx.send(ServerEvent::Compaction {
-                    trigger: event.trigger.clone(),
-                    pre_tokens: event.pre_tokens,
-                    post_tokens: event.post_tokens,
-                    tokens_saved: event.tokens_saved,
-                    duration_ms: event.duration_ms,
-                    messages_dropped: None,
-                    messages_compacted: event.messages_compacted,
-                    summary_chars: event.summary_chars,
-                    active_messages: event.active_messages,
-                });
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::Compaction {
+                        trigger: event.trigger.clone(),
+                        pre_tokens: event.pre_tokens,
+                        post_tokens: event.post_tokens,
+                        tokens_saved: event.tokens_saved,
+                        duration_ms: event.duration_ms,
+                        messages_dropped: None,
+                        messages_compacted: event.messages_compacted,
+                        summary_chars: event.summary_chars,
+                        active_messages: event.active_messages,
+                    },
+                );
             }
 
             let tools = self.tool_definitions().await;
@@ -51,7 +54,7 @@ impl Agent {
                 Some(std::sync::Arc::new({
                     let event_tx = event_tx.clone();
                     move |event| {
-                        let _ = event_tx.send(event);
+                        super::streaming::emit_best_effort_broadcast(&event_tx, event);
                     }
                 })),
             );
@@ -90,13 +93,16 @@ impl Agent {
                     computed_age_ms,
                 );
                 self.record_memory_injection_in_session(memory);
-                let _ = event_tx.send(ServerEvent::MemoryInjected {
-                    count: memory_count,
-                    prompt: memory.prompt.clone(),
-                    display_prompt: memory.display_prompt.clone(),
-                    prompt_chars: memory.prompt.chars().count(),
-                    computed_age_ms,
-                });
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::MemoryInjected {
+                        count: memory_count,
+                        prompt: memory.prompt.clone(),
+                        display_prompt: memory.display_prompt.clone(),
+                        prompt_chars: memory.prompt.chars().count(),
+                        computed_age_ms,
+                    },
+                );
                 let (memory_msg, persisted) = self.prepare_memory_injection_message(memory);
                 if !persisted {
                     ephemeral_signature_messages.push(memory_msg.clone());
@@ -123,12 +129,15 @@ impl Agent {
             let provider = Arc::clone(&self.provider);
             let resume_session_id = self.provider_session_id.clone();
             self.last_status_detail = None;
-            let _ = event_tx.send(kv_cache_request_event(
-                &cache_signature_messages,
-                &tools,
-                &split_prompt.static_part,
-                &ephemeral_signature_messages,
-            ));
+            super::streaming::emit_best_effort_broadcast(
+                &event_tx,
+                kv_cache_request_event(
+                    &cache_signature_messages,
+                    &tools,
+                    &split_prompt.static_part,
+                    &ephemeral_signature_messages,
+                ),
+            );
             let mut keepalive = stream_keepalive_ticker();
             let mut stream = {
                 let mut complete_future = std::pin::pin!(provider.complete_split(
@@ -158,17 +167,20 @@ impl Agent {
                                                 Self::MAX_CONTEXT_LIMIT_RETRIES
                                             ));
                                         }
-                                        let _ = event_tx.send(ServerEvent::Compaction {
-                                            trigger: "auto_recovery".to_string(),
-                                            pre_tokens: None,
-                                            post_tokens: None,
-                                            tokens_saved: None,
-                                            duration_ms: None,
-                                            messages_dropped: None,
-                                            messages_compacted: None,
-                                            summary_chars: None,
-                                            active_messages: None,
-                                        });
+                                        super::streaming::emit_best_effort_broadcast(
+                                            &event_tx,
+                                            ServerEvent::Compaction {
+                                                trigger: "auto_recovery".to_string(),
+                                                pre_tokens: None,
+                                                post_tokens: None,
+                                                tokens_saved: None,
+                                                duration_ms: None,
+                                                messages_dropped: None,
+                                                messages_compacted: None,
+                                                summary_chars: None,
+                                                active_messages: None,
+                                            },
+                                        );
                                         continue;
                                     }
                                     return Err(e);
@@ -311,18 +323,24 @@ impl Agent {
                     StreamEvent::ThinkingDelta(thinking_text) => {
                         // Only send thinking content if enabled in config
                         if crate::config::config().display.show_thinking {
-                            let _ = event_tx.send(ServerEvent::TextDelta {
-                                text: format!("💭 {}\n", thinking_text),
-                            });
+                            super::streaming::emit_best_effort_broadcast(
+                                &event_tx,
+                                ServerEvent::TextDelta {
+                                    text: format!("💭 {}\n", thinking_text),
+                                },
+                            );
                         }
                         if store_reasoning_content {
                             reasoning_content.push_str(&thinking_text);
                         }
                     }
                     StreamEvent::ThinkingDone { duration_secs } => {
-                        let _ = event_tx.send(ServerEvent::TextDelta {
-                            text: format!("Thought for {:.1}s\n", duration_secs),
-                        });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::TextDelta {
+                                text: format!("Thought for {:.1}s\n", duration_secs),
+                            },
+                        );
                     }
                     StreamEvent::TextDelta(text) => {
                         text_content.push_str(&text);
@@ -334,19 +352,26 @@ impl Agent {
                                 text_wrapped_detected = true;
                                 let clean_prefix =
                                     text_content[..marker_idx].trim_end().to_string();
-                                let _ =
-                                    event_tx.send(ServerEvent::TextReplace { text: clean_prefix });
+                                super::streaming::emit_best_effort_broadcast(
+                                    &event_tx,
+                                    ServerEvent::TextReplace { text: clean_prefix },
+                                );
                             } else {
-                                let _ =
-                                    event_tx.send(ServerEvent::TextDelta { text: text.clone() });
+                                super::streaming::emit_best_effort_broadcast(
+                                    &event_tx,
+                                    ServerEvent::TextDelta { text: text.clone() },
+                                );
                             }
                         }
                     }
                     StreamEvent::ToolUseStart { id, name } => {
-                        let _ = event_tx.send(ServerEvent::ToolStart {
-                            id: id.clone(),
-                            name: name.clone(),
-                        });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::ToolStart {
+                                id: id.clone(),
+                                name: name.clone(),
+                            },
+                        );
                         // Track tool name for later tool_done event
                         tool_id_to_name.insert(id.clone(), name.clone());
                         current_tool = Some(ToolCall {
@@ -388,15 +413,17 @@ impl Agent {
                             .get(&tool_use_id)
                             .cloned()
                             .unwrap_or_default();
-                        let _ = event_tx.send(ServerEvent::ToolDone {
-                            id: tool_use_id.clone(),
-                            name: tool_name,
-                            output: content.clone(),
-                            error: if is_error {
-                                Some("Tool error".to_string())
-                            } else {
-                                None
-                            },
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::ToolDone {
+                                id: tool_use_id.clone(),
+                                name: tool_name,
+                                output: content.clone(),
+                                error: if is_error {
+                                    Some("Tool error".to_string())
+                                } else {
+                                    None
+                                },
                         });
                         sdk_tool_results.insert(tool_use_id, (content, is_error));
                     }
@@ -470,16 +497,25 @@ impl Agent {
                     StreamEvent::ConnectionType { connection } => {
                         crate::telemetry::record_connection_type(&connection);
                         self.last_connection_type = Some(connection.clone());
-                        let _ = event_tx.send(ServerEvent::ConnectionType { connection });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::ConnectionType { connection },
+                        );
                     }
                     StreamEvent::ConnectionPhase { phase } => {
-                        let _ = event_tx.send(ServerEvent::ConnectionPhase {
-                            phase: phase.to_string(),
-                        });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::ConnectionPhase {
+                                phase: phase.to_string(),
+                            },
+                        );
                     }
                     StreamEvent::StatusDetail { detail } => {
                         self.last_status_detail = Some(detail.clone());
-                        let _ = event_tx.send(ServerEvent::StatusDetail { detail });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::StatusDetail { detail },
+                        );
                     }
                     StreamEvent::MessageEnd {
                         stop_reason: reason,
@@ -488,12 +524,15 @@ impl Agent {
                         if reason.is_some() {
                             stop_reason = reason;
                         }
-                        let _ = event_tx.send(ServerEvent::MessageEnd);
+                        super::streaming::emit_best_effort_broadcast(&event_tx, ServerEvent::MessageEnd);
                     }
                     StreamEvent::SessionId(sid) => {
                         self.provider_session_id = Some(sid.clone());
                         self.session.provider_session_id = Some(sid.clone());
-                        let _ = event_tx.send(ServerEvent::SessionId { session_id: sid });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::SessionId { session_id: sid },
+                        );
                     }
                     StreamEvent::OpenAIReasoning {
                         id,
@@ -552,7 +591,10 @@ impl Agent {
                     }
                     StreamEvent::UpstreamProvider { provider } => {
                         self.last_upstream_provider = Some(provider.clone());
-                        let _ = event_tx.send(ServerEvent::UpstreamProvider { provider });
+                        super::streaming::emit_best_effort_broadcast(
+                            &event_tx,
+                            ServerEvent::UpstreamProvider { provider },
+                        );
                     }
                     StreamEvent::Error {
                         message,
@@ -665,12 +707,15 @@ impl Agent {
                     usage_cache_read,
                     usage_cache_creation,
                 );
-                let _ = event_tx.send(ServerEvent::TokenUsage {
-                    input: usage_input.unwrap_or(0),
-                    output: usage_output.unwrap_or(0),
-                    cache_read_input: usage_cache_read,
-                    cache_creation_input: usage_cache_creation,
-                });
+                super::streaming::emit_best_effort_broadcast(
+                    &event_tx,
+                    ServerEvent::TokenUsage {
+                        input: usage_input.unwrap_or(0),
+                        output: usage_output.unwrap_or(0),
+                        cache_read_input: usage_cache_read,
+                        cache_creation_input: usage_cache_creation,
+                    },
+                );
             }
 
             // Store usage for debug queries
