@@ -228,6 +228,68 @@ impl SwarmServiceHandle {
         Self::get_member_friendly_name_for_notification(&self.swarm_state.members, session_id).await
     }
 
+    // === Ola 4 Wave 4.1.4 ParamCollapse (monitor_bus raw param reduction) ===
+    // Highest-impact remaining direct query in monitor_bus FileTouch arm (post 4.1.1-4.1.3):
+    // the `file_touches.read().await` + `latest_peer_touches` block (used to decide
+    // whether to emit FileConflict alerts for prior peer modifications).
+    // This + the alert dispatch extraction (on Maintenance) are the two surgical
+    // moves for 4.1.4 that eliminate direct raw Arc usage *inside the monitor_bus body*.
+    // Placed on SwarmServiceHandle (natural owner per SwarmStateInMonitor precedent +
+    // the fact that SwarmServiceHandle already holds the file_touches Arcs).
+    // Uses the now-pub(crate) latest_peer_touches (zero dupe). Transitional static
+    // (Arc form) for the raw-param monitor_bus call site + &self ergonomic.
+    // Non-overlapping prior slices (no writes, no event recording, no name/peer queries touched).
+    // Call site in monitor_bus updated to route through this; enables future full
+    // ownership move (no direct file_touches param needed once monitor_bus takes handles).
+    // Zero behavior change (logs + results identical; see moved log inside impl).
+    // References: OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1.4, ORCHESTRATION_STATUS.md,
+    // SERVER_SERVICE_SPLIT_PLAN.md Move 6, prior 4.1.2 SwarmStateInMonitor methods.
+
+    /// Thin read: prior peer modification touches on `path` by swarm peers of `session_id`.
+    /// Encapsulates the last direct file_touches read + latest_peer_touches computation
+    /// remaining inside monitor_bus after SwarmStateInMonitor extractions.
+    /// `swarm_session_ids` is the precomputed peer list (from get_swarm_peers_for_session).
+    /// Returns empty vec for non-mods or no prior peer mods (caller decides is_mod).
+    /// The "prior peer touches (n total)" and "no touches" logs are emitted from here
+    /// (exact same strings/timing as the inline block they replace).
+    pub async fn previous_peer_touches(
+        file_touches: &Arc<RwLock<HashMap<PathBuf, Vec<super::FileAccess>>>>,
+        swarm_session_ids: &[String],
+        path: &PathBuf,
+        session_id: &str,
+    ) -> Vec<super::FileAccess> {
+        let swarm_session_ids_set: HashSet<String> = swarm_session_ids.iter().cloned().collect();
+        let touches = file_touches.read().await;
+        if let Some(accesses) = touches.get(path) {
+            let result = super::latest_peer_touches(accesses, session_id, &swarm_session_ids_set);
+            crate::logging::info(&format!(
+                "[file-activity] {} prior peer touches ({} total accesses)",
+                result.len(),
+                accesses.len()
+            ));
+            result
+        } else {
+            crate::logging::info("[file-activity] no touches for this path yet");
+            vec![]
+        }
+    }
+
+    /// Ergonomic &self variant (for when SwarmServiceHandle is available via services).
+    pub async fn previous_peer_touches_for(
+        &self,
+        swarm_session_ids: &[String],
+        path: &PathBuf,
+        session_id: &str,
+    ) -> Vec<super::FileAccess> {
+        Self::previous_peer_touches(
+            &self.file_touches,
+            swarm_session_ids,
+            path,
+            session_id,
+        )
+        .await
+    }
+
     // === Ola 4 Wave 4.1 EventRecordingExtractor ===
     // Extracted ONLY the event recording + notification fanout logic for the
     // record_swarm_event call (and SwarmEventType::FileTouch construction) after

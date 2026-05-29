@@ -1,0 +1,100 @@
+    Blocking waiting for file lock on build directory
+   Compiling jcode v0.14.4 (C:\Users\jonathan barragan\jcode)
+warning: unused import: `super::*`
+   --> src\memory\activity.rs:206:5
+    |
+206 | use super::*;
+    |     ^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `FileAccess`, `SharedContext`, `SwarmEvent`, and `VersionedPlan`
+ --> src\server\background_tasks.rs:2:5
+  |
+2 |     FileAccess, SessionAgents, SessionInterruptQueues, SharedContext, SwarmEvent, SwarmMember,
+  |     ^^^^^^^^^^                                         ^^^^^^^^^^^^^  ^^^^^^^^^^
+3 |     VersionedPlan, fanout_session_event, queue_soft_interrupt_for_session,
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `HashSet`
+  --> src\server\background_tasks.rs:12:33
+   |
+12 | use std::collections::{HashMap, HashSet};
+   |                                 ^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\background_tasks.rs:13:5
+   |
+13 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `broadcast`
+  --> src\server\background_tasks.rs:15:19
+   |
+15 | use tokio::sync::{broadcast, RwLock};
+   |                   ^^^^^^^^^
+
+warning: unused imports: `AwaitMembersRuntime`, `ClientDebugState`, `FileAccess`, `SharedContext`, `SwarmMutationRuntime`, and `VersionedPlan`
+  --> src\server\client_lifecycle.rs:48:5
+   |
+48 |     AwaitMembersRuntime, ClientConnectionInfo, ClientDebugState, FileAccess, SessionControlHandle,
+   |     ^^^^^^^^^^^^^^^^^^^                        ^^^^^^^^^^^^^^^^  ^^^^^^^^^^
+49 |     SessionInterruptQueues, SharedContext, SwarmEvent, SwarmMember, SwarmMutationRuntime,
+   |                             ^^^^^^^^^^^^^                           ^^^^^^^^^^^^^^^^^^^^
+50 |     VersionedPlan, format_structured_completion_report, register_session_interrupt_queue,
+   |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\client_lifecycle.rs:65:5
+   |
+65 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DebugJob`
+  --> src\server\debug.rs:14:25
+   |
+14 | use super::debug_jobs::{DebugJob, maybe_handle_job_command};
+   |                         ^^^^^^^^
+
+warning: unused imports: `FileAccess`, `ServerIdentity`, `SharedContext`, `SwarmEvent`, and `VersionedPlan`
+  --> src\server\debug.rs:21:5
+   |
+21 |     FileAccess, ServerIdentity, SharedContext, SwarmEvent, SwarmMember, VersionedPlan,
+   |     ^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^               ^^^^^^^^^^^^^
+
+warning: unused import: `crate::agent::Agent`
+  --> src\server\debug.rs:24:5
+   |
+24 | use crate::agent::Agent;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ambient_runner::AmbientRunnerHandle`
+  --> src\server\debug.rs:25:5
+   |
+25 | use crate::ambient_runner::AmbientRunnerHandle;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::provider::Provider`
+  --> src\server\debug.rs:27:5
+   |
+27 | use crate::provider::Provider;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `jcode_agent_runtime::InterruptSignal`
+  --> src\server\debug.rs:30:5
+   |
+30 | use jcode_agent_runtime::InterruptSignal;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\debug.rs:32:5
+   |
+32 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Mutex` and `broadcast`
+  --> src\server\debug.rs:36:19
+   |
+36 | use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+   |                   ^^^^^          ^^^^^^^^^
+

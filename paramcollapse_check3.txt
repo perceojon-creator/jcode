@@ -1,0 +1,275 @@
+    Checking jcode v0.14.4 (C:\Users\jonathan barragan\jcode)
+error: expected parameter name, found `>`
+   --> src\server\handles.rs:256:72
+    |
+256 |         file_touches: &Arc<RwLock<HashMap<PathBuf, super::FileAccess>>>>,
+    |                                                                        ^ expected parameter name
+
+error: expected one of `!`, `)`, `,`, or `::`, found `>`
+   --> src\server\handles.rs:256:72
+    |
+256 |         file_touches: &Arc<RwLock<HashMap<PathBuf, super::FileAccess>>>>,
+    |                                                                        ^
+    |                                                                        |
+    |                                                                        expected one of `!`, `)`, `,`, or `::`
+    |                                                                        help: missing `,`
+
+warning: unused import: `super::*`
+   --> src\memory\activity.rs:206:5
+    |
+206 | use super::*;
+    |     ^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `FileAccess`, `SharedContext`, `SwarmEvent`, and `VersionedPlan`
+ --> src\server\background_tasks.rs:2:5
+  |
+2 |     FileAccess, SessionAgents, SessionInterruptQueues, SharedContext, SwarmEvent, SwarmMember,
+  |     ^^^^^^^^^^                                         ^^^^^^^^^^^^^  ^^^^^^^^^^
+3 |     VersionedPlan, fanout_session_event, queue_soft_interrupt_for_session,
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `HashSet`
+  --> src\server\background_tasks.rs:12:33
+   |
+12 | use std::collections::{HashMap, HashSet};
+   |                                 ^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\background_tasks.rs:13:5
+   |
+13 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `broadcast`
+  --> src\server\background_tasks.rs:15:19
+   |
+15 | use tokio::sync::{broadcast, RwLock};
+   |                   ^^^^^^^^^
+
+warning: unused imports: `AwaitMembersRuntime`, `ClientDebugState`, `FileAccess`, `SharedContext`, `SwarmMutationRuntime`, and `VersionedPlan`
+  --> src\server\client_lifecycle.rs:48:5
+   |
+48 |     AwaitMembersRuntime, ClientConnectionInfo, ClientDebugState, FileAccess, SessionControlHandle,
+   |     ^^^^^^^^^^^^^^^^^^^                        ^^^^^^^^^^^^^^^^  ^^^^^^^^^^
+49 |     SessionInterruptQueues, SharedContext, SwarmEvent, SwarmMember, SwarmMutationRuntime,
+   |                             ^^^^^^^^^^^^^                           ^^^^^^^^^^^^^^^^^^^^
+50 |     VersionedPlan, format_structured_completion_report, register_session_interrupt_queue,
+   |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\client_lifecycle.rs:65:5
+   |
+65 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DebugJob`
+  --> src\server\debug.rs:14:25
+   |
+14 | use super::debug_jobs::{DebugJob, maybe_handle_job_command};
+   |                         ^^^^^^^^
+
+warning: unused imports: `FileAccess`, `ServerIdentity`, `SharedContext`, `SwarmEvent`, and `VersionedPlan`
+  --> src\server\debug.rs:21:5
+   |
+21 |     FileAccess, ServerIdentity, SharedContext, SwarmEvent, SwarmMember, VersionedPlan,
+   |     ^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^               ^^^^^^^^^^^^^
+
+warning: unused import: `crate::agent::Agent`
+  --> src\server\debug.rs:24:5
+   |
+24 | use crate::agent::Agent;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ambient_runner::AmbientRunnerHandle`
+  --> src\server\debug.rs:25:5
+   |
+25 | use crate::ambient_runner::AmbientRunnerHandle;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::provider::Provider`
+  --> src\server\debug.rs:27:5
+   |
+27 | use crate::provider::Provider;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `jcode_agent_runtime::InterruptSignal`
+  --> src\server\debug.rs:30:5
+   |
+30 | use jcode_agent_runtime::InterruptSignal;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> src\server\debug.rs:32:5
+   |
+32 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Mutex` and `broadcast`
+  --> src\server\debug.rs:36:19
+   |
+36 | use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+   |                   ^^^^^          ^^^^^^^^^
+
+warning: unused import: `SystemTime`
+  --> src\server\handles.rs:19:26
+   |
+19 | use std::time::{Instant, SystemTime};
+   |                          ^^^^^^^^^^
+
+warning: unused import: `anyhow::Error as AnyhowError`
+  --> src\server\handles.rs:32:5
+   |
+32 | use anyhow::Error as AnyhowError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `FailoverDecision` and `ModelCatalogRefreshSummary`
+  --> src\server\handles.rs:33:27
+   |
+33 | use jcode_provider_core::{FailoverDecision, ModelCatalogRefreshSummary};
+   |                           ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ClientDebugState`
+ --> src\server\runtime.rs:2:20
+  |
+2 | use super::debug::{ClientDebugState, handle_debug_client};
+  |                    ^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::debug_jobs::DebugJob`
+ --> src\server\runtime.rs:3:5
+  |
+3 | use super::debug_jobs::DebugJob;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `self::handles::MaintenanceServiceHandle`
+   --> src\server.rs:115:5
+    |
+115 | use self::handles::MaintenanceServiceHandle;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `collect_diff_lines` and `generate_diff_lines_from_tool_input`
+  --> src\tui\ui.rs:41:58
+   |
+41 |     DiffLineKind, ParsedDiffLine, MAX_INLINE_DIFF_LINES, collect_diff_lines, diff_add_color,
+   |                                                          ^^^^^^^^^^^^^^^^^^
+42 |     diff_change_counts_for_tool, diff_del_color, edit_change_lines_for_tool,
+43 |     generate_diff_lines_from_tool_input, render_edit_diff_block, tint_span_with_diff_color,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+   --> src\server\handles.rs:264:53
+    |
+264 |             let result = super::latest_peer_touches(accesses, session_id, &swarm_session_ids_set);
+    |                          -------------------------- ^^^^^^^^ expected `&[FileAccess]`, found `&FileAccess`
+    |                          |
+    |                          arguments to this function are incorrect
+    |
+    = note: expected reference `&[FileAccess]`
+               found reference `&FileAccess`
+note: function defined here
+   --> src\server\state.rs:27:15
+    |
+ 27 | pub(crate) fn latest_peer_touches(
+    |               ^^^^^^^^^^^^^^^^^^^
+ 28 |     accesses: &[FileAccess],
+    |     -----------------------
+
+error[E0599]: no method named `len` found for reference `&FileAccess` in the current scope
+   --> src\server\handles.rs:268:26
+    |
+268 |                 accesses.len()
+    |                          ^^^ method not found in `&FileAccess`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: one of the expressions' fields has a method of the same name
+    |
+268 |                 accesses.session_id.len()
+    |                          +++++++++++
+help: trait `Chain` which provides `len` is implemented but not in scope; perhaps you want to import it
+    |
+ 16 + use chumsky::chain::Chain;
+    |
+
+error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+   --> src\server\handles.rs:284:9
+    |
+284 |         Self::previous_peer_touches(
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+287 |             path,
+    |             ---- argument #3 of type `&[std::string::String]` is missing
+    |
+note: expected `&Arc<RwLock<HashMap<PathBuf, ...>>>`, found `&Arc<RwLock<HashMap<PathBuf, Vec<...>>>>`
+   --> src\server\handles.rs:285:13
+    |
+285 |             &self.file_touches,
+    |             ^^^^^^^^^^^^^^^^^^
+    = note: expected reference `&std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<_, FileAccess>>>`
+               found reference `&std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<_, Vec<FileAccess>>>>`
+note: associated function defined here
+   --> src\server\handles.rs:255:18
+    |
+255 |     pub async fn previous_peer_touches(
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+256 |         file_touches: &Arc<RwLock<HashMap<PathBuf, super::FileAccess>>>>,
+    |         ---------------------------------------------------------------
+257 |         swarm_session_ids: &[String],
+    |         ----------------------------
+help: provide the argument
+    |
+284 ~         Self::previous_peer_touches(
+285 +             /* &std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<std::path::PathBuf, FileAccess>>> */,
+286 +             swarm_session_ids,
+287 +             /* &[std::string::String] */,
+288 +             path,
+289 +             session_id,
+290 +         )
+    |
+
+warning: variable does not need to be mutable
+    --> src\server.rs:1400:13
+     |
+1400 |         let mut last_cleanup = Instant::now();
+     |             ----^^^^^^^^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::provider::Provider`
+  --> src\server\client_lifecycle.rs:58:5
+   |
+58 | use crate::provider::Provider;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `event_history`
+    --> src\server\client_session.rs:1388:9
+     |
+1388 |         event_history: &Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
+     |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_event_history`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `event_counter`
+    --> src\server\client_session.rs:1389:9
+     |
+1389 |         event_counter: &Arc<std::sync::atomic::AtomicU64>,
+     |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_event_counter`
+
+warning: unused variable: `swarm_event_tx`
+    --> src\server\client_session.rs:1390:9
+     |
+1390 |         swarm_event_tx: &broadcast::Sender<SwarmEvent>,
+     |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_swarm_event_tx`
+
+warning: unused variable: `last_cleanup`
+    --> src\server.rs:1400:13
+     |
+1400 |         let mut last_cleanup = Instant::now();
+     |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_last_cleanup`
+
+Some errors have detailed explanations: E0061, E0308, E0599.
+For more information about an error, try `rustc --explain E0061`.
+warning: `jcode` (lib) generated 28 warnings
+error: could not compile `jcode` (lib) due to 5 previous errors; 28 warnings emitted

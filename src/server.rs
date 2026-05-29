@@ -185,7 +185,7 @@ use self::runtime_memory::{
 
 mod state;
 
-use self::state::latest_peer_touches;
+pub(crate) use self::state::latest_peer_touches;
 pub use self::state::{
     FileAccess, SessionControlHandle, SharedContext, SwarmEvent, SwarmEventType, SwarmMember,
     SwarmState,

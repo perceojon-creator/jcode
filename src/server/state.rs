@@ -24,7 +24,7 @@ pub struct FileAccess {
     pub detail: Option<String>,
 }
 
-pub(super) fn latest_peer_touches(
+pub(crate) fn latest_peer_touches(
     accesses: &[FileAccess],
     current_session_id: &str,
     swarm_session_ids: &HashSet<String>,

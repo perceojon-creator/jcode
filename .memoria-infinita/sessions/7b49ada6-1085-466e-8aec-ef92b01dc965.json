@@ -1,0 +1,429 @@
+{
+  "id": "7b49ada6-1085-466e-8aec-ef92b01dc965",
+  "start_time": "2026-05-28T22:05:15.362529800Z",
+  "end_time": null,
+  "machine": "DESKTOP-0J8G9PN",
+  "events": [
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:05:15.360056Z",
+          "tool": "Bash",
+          "input": {
+            "command": "cd jcode && grep -A 5 '\\[bin\\]' Cargo.toml | head -20",
+            "description": "Check binary name in Cargo.toml"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:05:20.547248300Z",
+          "tool": "Bash",
+          "input": {
+            "command": "pwd && ls",
+            "description": "Check current directory"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:13:40.828532700Z",
+          "tool": "Bash",
+          "input": {
+            "command": "cargo install --path .",
+            "description": "Install jcode binary globally",
+            "timeout": 600000
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:13:45.413458200Z",
+          "tool": "TaskOutput",
+          "input": {
+            "block": true,
+            "task_id": "brxqeyytf",
+            "timeout": 600000
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:13:50.766925500Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode --version 2>&1 || jcode --help 2>&1 | head -5",
+            "description": "Verify jcode installation"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:13:57.501113100Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:14:07.096580Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:14:29.418869100Z",
+          "tool": "Bash",
+          "input": {
+            "command": "echo \"export PATH=\\\"\\$HOME/.cargo/bin:\\$PATH\\\"\" >> ~/.bashrc && echo \"export JCODE_NO_TELEMETRY=1\" >> ~/.bashrc && cat ~/.bashrc | tail -5",
+            "description": "Add jcode to PATH in bashrc"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:15:03.948306400Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:18:40.275832Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:18:45.464578900Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode --help 2>&1 | grep -A 20 -i \"provider\\|azure\\|openai\\|gemini\"",
+            "description": "Get jcode help for provider options"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:18:49.207725800Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:19:22.176400400Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:19:25.833631100Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:21:15.845074600Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:21:50.499267900Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode auth --help 2>&1",
+            "description": "Check jcode auth help for API key configuration"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:21:54.413945100Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode auth doctor -p minimax 2>&1 || jcode login --help 2>&1",
+            "description": "Check how to configure minimax API key"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:21:57.835068600Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:22:53.403439300Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:22:58.397470300Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode login --help 2>&1",
+            "description": "Check jcode login syntax"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:23:02.115370Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:23:26.091943400Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:24:00.874929800Z",
+          "tool": "Bash",
+          "input": {
+            "command": "cat ~/.config/jcode/config.toml 2>&1 | grep -A 20 \"\\[providers\" | head -60",
+            "description": "Check jcode provider profiles"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:24:04.874797100Z",
+          "tool": "Bash",
+          "input": {
+            "command": "find ~/.config/jcode 2>/dev/null || ls -la ~/.config/ | grep jcode 2>/dev/null",
+            "description": "Find jcode config location"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:24:10.554211900Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:25:21.429692800Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:25:25.151427400Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode provider 2>&1 | head -50",
+            "description": "Get jcode provider info"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:25:32.152545600Z",
+          "tool": "WebSearch",
+          "input": {
+            "query": "MiniMax API endpoint URL base API"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:26:09.595163300Z",
+          "tool": "mcp__context7__resolve-library-id",
+          "input": {
+            "libraryName": "minimax",
+            "query": "MiniMax API base URL endpoint configuration"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:26:14.845354400Z",
+          "tool": "mcp__context7__query-docs",
+          "input": {
+            "libraryId": "/websites/platform_minimax_io_api-reference",
+            "query": "MiniMax API base URL endpoint address"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:26:18.635356100Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.user_prompt": {
+          "timestamp": "2026-05-28T22:27:27.294939600Z",
+          "content": ""
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:27:32.762769800Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode auth status --json 2>&1 | head -100",
+            "description": "Check jcode auth status and saved profiles"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:28:08.775589800Z",
+          "tool": "Bash",
+          "input": {
+            "command": "jcode provider list 2>&1",
+            "description": "List all jcode provider profiles"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.tool_call": {
+          "timestamp": "2026-05-28T22:28:12.421486300Z",
+          "tool": "Bash",
+          "input": {
+            "command": "cat ~/.config/jcode/config.toml 2>/dev/null || echo \"No config found\"",
+            "description": "Read jcode config.toml for custom profiles"
+          },
+          "output_summary": null
+        }
+      }
+    },
+    {
+      "type": "Conversation",
+      "data": {
+        "conversation.stop": {
+          "timestamp": "2026-05-28T22:28:17.291431900Z",
+          "reason": "stop_hook_active=false"
+        }
+      }
+    }
+  ],
+  "tags": []
+}

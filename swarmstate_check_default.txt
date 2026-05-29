@@ -1,0 +1,15 @@
+...
+649 |     pub fn provider_on_auth_changed_preserve(&self) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+657 |     pub fn provider_failover_surface_ready(&self) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+692 |     pub fn event_tx(&self) -> broadcast::Sender<ServerEvent> {
+    |            ^^^^^^^^
+...
+722 |     pub fn mcp_pool(&self) -> Arc<OnceCell<Arc<SharedMcpPool>>> {
+    |            ^^^^^^^^
+
+warning: `jcode` (lib) generated 42 warnings (run `cargo fix --lib -p jcode` to apply 27 suggestions)
+    Finished `dev` profile [unoptimized] target(s) in 23.76s
