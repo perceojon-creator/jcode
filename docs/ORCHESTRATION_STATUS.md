@@ -1,7 +1,13 @@
 # jcode Fork — Live Orchestration Status
 
 **Orchestrator**: Grok (this session)  
-**Current Phase**: Ola 4 STARTED — #1 Stabilization COMPLETE (E0603 + visibility + doc/import fixes from post-Ola 3 dispatch/Move 6 work). Next: #2 Finish monitor_bus collapse (highest coupling win). Tree stabilized + committed on quickwin/emit-best-effort-streaming (which seeded the emit helpers now used pervasively in hygiene).
+**Current Phase**: Ola 4 #1 FULLY DELIVERED (both default + --profile selfdev green). Tree stabilized and committed. Next: Ola 4 #2 — Finish SPLIT_PLAN Move 6 (monitor_bus collapse — the real high-leverage work).
+
+**Ola 4 #1 Stabilization — Final Delivery (this session)**:
+- All E0603, duplicate definitions, doc comment, import, borrow, &emit_best_effort, and resolution issues fixed.
+- `cargo check -p jcode --lib` (default) + `--profile selfdev` both exit 0 clean.
+- Last stabilization commit: 2177e95c.
+- Ola 4 #1 complete. The tree the agents left (broken under the dev profile) is now solid. Ready for the actual next wave.
 
 **Ola 4 Stabilization #1 (just delivered)**: 
 - Fixed `pub(crate) mod streaming` (agent.rs) — unblocked all `emit_best_effort_mpsc` call sites from server/* (the exact friction called out in Ola 3 Closure).
