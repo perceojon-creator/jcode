@@ -1,99 +1,99 @@
-# MASTER PLAN - Corrección de Debilidades Jcode
+# MASTER PLAN - Correccion de Debilidades Jcode
 
-**Generado:** 2026-05-28 por 5-agent swarm  
+**Generado:** 2026-05-28 por 5-agent swarm
 **Proyecto:** perceojon-creator/jcode
+**Actualizado:** 2026-05-28
 
 ---
 
 ## Resumen Ejecutivo
 
-Este plan aborda las 5 debilidades identificadas en el análisis de jcode:
-
-| # | Debilidad | Prioridad | Timeline | Riesgo |
-|---|-----------|-----------|----------|--------|
-| 1 | MiniMax Provider Fix | 🔴 CRÍTICO | 1-2 días | BAJO |
-| 2 | Build Speed | 🟠 ALTO | 2-4 semanas | MEDIO |
-| 3 | Android Support | 🟠 ALTO | 1-2 semanas | MEDIO |
-| 4 | Memory Phase 6 | 🟡 MEDIO | 4-8 semanas | ALTO |
-| 5 | Handterm Smooth Scroll | 🟡 MEDIO | 2-3 semanas | MEDIO |
+| # | Debilidad | Estado | Timeline | Riesgo |
+|---|-----------|--------|----------|--------|
+| 1 | MiniMax Provider Fix | COMPLETADO | Hecho | Bajo |
+| 2 | Build Speed | Pendiente parcial | 2-4 semanas | Medio |
+| 3 | Android Support | Pendiente | 1-2 semanas | Medio |
+| 4 | Memory Phase 6 | Pendiente | 4-8 semanas | Alto |
+| 5 | Handterm Smooth Scroll | Pendiente | 2-3 semanas | Medio |
 
 ---
 
-## PRIORIDAD 1: MiniMax Provider Fix 🔴
+## Completado: MiniMax Provider Fix
 
-### Problema
-API key `sk-cp-*` (China) necesita endpoint `api.minimaxi.com`, pero no está funcionando correctamente.
+MiniMax ya fue corregido. La premisa anterior de forzar `sk-cp-*` a `api.minimaxi.com` era insegura y fue eliminada.
 
-### Solución
-Ver detalles en: `minimax_provider_plan.md`
+Estado actual:
+- Endpoint oficial: `https://api.minimax.io/v1`
+- Env var dedicada: `MINIMAX_API_KEY`
+- Compatibilidad legacy: `OPENAI_API_KEY` solo dentro de `minimax.env`
+- Validado con `jcode -p minimax`
 
-### Impacto
-Permite usar jcode con tu API key de MiniMax ($20/mes, 4500 req/5h).
-
----
-
-## PRIORIDAD 2: Build Speed Optimization 🟠
-
-### Problema
-- Warm cargo check: ~8.5s (meta: <5s)
-- Warm selfdev build: ~47s (meta: <20-30s)
-
-### Solución
-Ver detalles en: `build_speed_plan.md`
-
-### Impacto
-3x más rápido ciclo de desarrollo.
+Impacto: jcode puede usar MiniMax desde el provider `minimax`.
 
 ---
 
-## PRIORIDAD 3: Android Support 🟠
+## Prioridad 2: Build Speed Optimization
 
-### Problema
-Binary requiere glibc, Termux usa bionic.
+Problema:
+- Warm cargo check aun necesita medicion actual
+- Warm selfdev build aun necesita medicion actual
 
-### Solución
-Ver detalles en: `android_support_plan.md`
+Solucion:
+- Ver `build_speed_plan.md`
+- Ver `build_speed_phase2.md`
+- Validar con comandos repetibles antes de prometer mejora real
 
-### Impacto
-Permite desarrollo desde Termux en Android.
-
----
-
-## PRIORIDAD 4: Memory Phase 6 🟡
-
-### Problema
-Negative/procedural/temporal memories no implementadas.
-
-### Solución
-Ver detalles en: `memory_phase6_plan.md`
-
-### Impacto
-Agents más inteligentes a largo plazo.
+Impacto: ciclo de desarrollo mas rapido.
 
 ---
 
-## PRIORIDAD 5: Handterm Smooth Scroll 🟡
+## Prioridad 3: Android Support
 
-### Problema
-Custom scrollback existe pero sin smooth scrolling.
+Problema:
+- Binary desktop requiere glibc
+- Termux usa bionic
+- `arboard` sigue siendo punto de riesgo
 
-### Solución
-Ver detalles en: `handterm_plan.md`
+Solucion:
+- Ver `android_support_plan.md`
+- Validar en CI ARM64/Android
 
-### Impacto
-UX improvement.
-
----
-
-## Próximos Pasos
-
-1. ✅ Analizar debilidades (completado)
-2. ⏳ Crear planes detallados (completado)
-3. ⬜ Implementar Priority 1 (MiniMax) - Empezar ahora
-4. ⬜ Implementar Priority 3 (Android) - En paralelo
-5. ⬜ Implementar Priority 2 (Build Speed) - Siguiente sprint
-6. ⬜ Roadmap Priority 4 & 5
+Impacto: desarrollo desde Termux en Android.
 
 ---
 
-*Plans generados por agents especializados: ram, butterfly, llama, dog*
+## Prioridad 4: Memory Phase 6
+
+Problema:
+- Negative/procedural/temporal memories siguen pendientes.
+
+Solucion:
+- Ver `memory_phase6_plan.md`
+
+Impacto: agentes mas utiles a largo plazo, pero con alto riesgo de complejidad.
+
+---
+
+## Prioridad 5: Handterm Smooth Scroll
+
+Problema:
+- Custom scrollback existe, pero smooth scrolling no esta cerrado.
+
+Solucion:
+- Ver `handterm_plan.md`
+
+Impacto: mejora UX.
+
+---
+
+## Proximos Pasos
+
+1. Completado: MiniMax.
+2. Limpiar/decidir cambios ajenos del working tree.
+3. Validar Android en CI.
+4. Medir build speed actual.
+5. Empezar una extraccion pequena de arquitectura/server/TUI.
+
+---
+
+*MiniMax eliminado de pendientes porque ya esta terminado.*
