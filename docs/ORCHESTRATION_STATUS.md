@@ -274,6 +274,38 @@ Replace the two mutation blocks (the `// Record this touch` { } and `// reverse`
 
 **Verification Baseline (pre first edit)**: checks GREEN, boundary GREEN. No code changes in this kickoff edit (docs + proposal only).
 
+---
+
+**Sub-wave 4.1.1 FileTouchExtractor Closure (2026-05-29)**
+
+**Agent**: FileTouchExtractor (019e7350-9503-75f2-bc79-0996a45ce8de) — 440.7s, 67 tool calls, exit 0.
+
+**What landed (exact per Lead proposal)**:
+- Two new pure passthrough thin methods on `impl MaintenanceServiceHandle` (handles.rs):
+  - `pub(super) async fn record_file_touch(...)` — verbatim logic of the primary FileTouch write block.
+  - `pub(super) async fn update_file_touch_reverse_index(...)` — verbatim logic of the reverse index write block.
+- Call site in `monitor_bus` (server.rs, FileTouch arm, immediately after `let path/session_id`) replaced with the two handle calls (1:1 mechanical, zero behavior change).
+- Scope strictly limited: **only** these two mutations. Swarm queries, event recording/fanout, param list, reload paths, provider, TUI untouched (parallel agents handled their non-overlapping slices in the same files).
+
+**Verification (agent + orchestrator re-check)**:
+- `cargo check -p jcode --lib` (default): GREEN (exit 0; only pre-existing warnings).
+- `cargo check -p jcode --lib --profile selfdev`: GREEN (exit 0; ~8-14s warm).
+- `py -3 scripts/check_dependency_boundaries.py` x2: Both GREEN ("dependency boundary check passed").
+- Relevant tests (file_activity paths + FileAccess/FileTouch types): No new regressions in production `--lib` code. (Pre-existing unrelated test-module compile friction in *_tests.rs from prior Ola 2/3 moves remains; does not affect this production slice or --lib checks.)
+- No new swallowed errors, panics, or boundary violations.
+
+**Commit + push**: fca521cc89b0763b5033cf45e798a8c3751d3fb8 (small focused; message references Wave 4.1.1 + exact proposal + gates + readiness for Lead gate).
+
+**Impact on master metrics**:
+- Entry #1 (Server Service Handles / Move 6): 95% → **~96.5%** (first concrete mutation path in monitor_bus now behind thin MaintenanceServiceHandle methods; direct Arc writes eliminated for FileTouch recording + reverse index).
+- Tree now has FileTouch + concurrent EventRecording + SwarmState slices (expected parallel model).
+
+**Readiness**: This sub-wave is **COMPLETE**. monitor_bus FileTouch path is now routed exclusively through the handle. Zero blast radius. Ready for full Lead/Verifier gate, "Sub-wave 4.1.1 Closure" integration into Fase0 table if warranted, and spawn of next (SwarmStateInMonitor 4.1.2 or direct to ParamCollapse).
+
+**Handoff back to Move6CollapseLead**: Full gate + ORCH closure block + todo advance + spawn SwarmStateInMonitor (precise proposal for the 1417-1433 + 1478 swarm query blocks inside the same FileTouch arm) or ParamCollapse as you decide.
+
+All per OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1 + AGENTS.md. Surgical progress on the highest-leverage item (Move 6). Master plan execution continues.
+
 **References** (absolute):
 - monitor_bus: C:\Users\jonathan barragan\jcode\src\server.rs:1338 (sig + FileTouch 1364-1592)
 - Maintenance: C:\Users\jonathan barragan\jcode\src\server\handles.rs:174 (struct+new+reload methods 207-261)
