@@ -917,9 +917,9 @@ impl Server {
         let monitor_files_touched_by_session = Arc::clone(&self.files_touched_by_session);
         let monitor_swarm_members = Arc::clone(&self.swarm_state.members);
         let monitor_swarms_by_id = Arc::clone(&self.swarm_state.swarms_by_id);
-        let monitor_swarm_plans = Arc::clone(&self.swarm_state.plans);
-        let monitor_swarm_coordinators = Arc::clone(&self.swarm_state.coordinators);
-        let monitor_shared_context = Arc::clone(&self.shared_context);
+        // Ola 4 Wave 4.1.4 ParamCollapse: stopped cloning the 3 unused (plans/coordinators/shared_context)
+        // for the monitor_bus path. Raw param list to monitor_bus reduced (12 -> 9). The values
+        // continue to be cloned for other tasks (stale swarm sweep etc).
         let monitor_sessions = Arc::clone(&self.sessions);
         let monitor_soft_interrupt_queues = Arc::clone(&self.soft_interrupt_queues);
         let monitor_event_history = Arc::clone(&self.event_history);
@@ -937,14 +937,12 @@ impl Server {
             // Stabilization: call the real heavy monitor_bus directly.
             // The thin Server::run_monitor_bus wrapper (and full handle ownership)
             // will be cleaned up during Ola 4 #2 monitor_bus collapse.
+            // 4.1.4 update: 3 dead params removed from monitor_bus + this call site (param collapse).
             Server::monitor_bus(
                 monitor_file_touches,
                 monitor_files_touched_by_session,
                 monitor_swarm_members,
                 monitor_swarms_by_id,
-                monitor_swarm_plans,
-                monitor_swarm_coordinators,
-                monitor_shared_context,
                 monitor_sessions,
                 monitor_soft_interrupt_queues,
                 monitor_event_history,
@@ -1377,19 +1375,31 @@ impl Server {
         });
     }
 
-    /// Monitor the global Bus for FileTouch events and detect conflicts
+    /// Monitor the global Bus for FileTouch events and detect conflicts.
+    ///
+    /// Ola 4 Wave 4.1.4 ParamCollapse: raw param list collapsed (removed 3 unused
+    /// _swarm_plans / _swarm_coordinators / _shared_context; they are never read
+    /// in current arms). Highest-impact direct raw queries/mutations inside the
+    /// FileTouch body now routed through thin handle methods:
+    ///   - record_file_touch (Maintenance, 4.1.1)
+    ///   - record_file_activity_event + get_* (Swarm, 4.1.2/4.1.3)
+    ///   - previous_peer_touches (Swarm, this wave)
+    ///   - dispatch_file_conflict_alerts (Maintenance, this wave)
+    /// The remaining raw params are only passed *through* to the thin methods
+    /// (or to the other dispatch_* arms). Direct .read()/.write() + complex
+    /// alert construction eliminated from this body.
     #[expect(
         clippy::too_many_arguments,
-        reason = "bus monitor needs file state, swarm state, sessions, queues, and event history sinks"
+        reason = "bus monitor needs file state, swarm state, sessions, queues, and event history sinks (transitional; further narrowing when monitor_bus accepts ServerServices / handles)"
     )]
     async fn monitor_bus(
         file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
         files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
         swarm_members: Arc<RwLock<HashMap<String, SwarmMember>>>,
         swarms_by_id: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-        _swarm_plans: Arc<RwLock<HashMap<String, VersionedPlan>>>,
-        _swarm_coordinators: Arc<RwLock<HashMap<String, String>>>,
-        _shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
+        // NOTE (Ola 4 4.1.4 ParamCollapse): 3 legacy params removed here + spawn + run_monitor_bus shim.
+        // They were unused (only FileTouch + Background/UI/Todo arms active; plans/coordinators/shared
+        // touched by other code paths). Direct reduction of raw Arc list passed to monitor_bus.
         sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
         soft_interrupt_queues: SessionInterruptQueues,
         event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
@@ -1406,6 +1416,8 @@ impl Server {
             // MaintenanceServiceHandle is the core of Ola 4 #2 (monitor_bus collapse).
             // TODO(Ola 4 #2): restore the call + move logic behind the handle.
             // Safe to skip the periodic cleanup during this stabilization window.
+            // Progress (4.1.4): two additional thin methods (previous_peer_touches + dispatch_file_conflict_alerts)
+            // landed; direct complex logic sites inside this fn body reduced.
 
             match receiver.recv().await {
                 Ok(BusEvent::FileTouch(touch)) => {
@@ -1446,8 +1458,7 @@ impl Server {
 
                     // Find the swarm this session belongs to
                     // Ola 4 Wave 4.1 SwarmStateInMonitor: now via thin read method on SwarmServiceHandle.
-                    // (passthrough; only this membership query site updated inside monitor_bus loop.
-                    // File touch recording + event recording paths left untouched per mandate.)
+                    // (passthrough; only this membership query site updated inside monitor_bus loop.)
                     let swarm_session_ids: Vec<String> =
                         handles::SwarmServiceHandle::get_swarm_peers_for_session(
                             &swarm_members,
@@ -1471,162 +1482,40 @@ impl Server {
                                 .collect::<Vec<_>>()
                         ));
                     }
+
+                    // Ola 4 Wave 4.1.4 ParamCollapse: previous peer touches computation now via
+                    // thin SwarmServiceHandle method (eliminates last direct file_touches.read()
+                    // + latest_peer_touches usage inside monitor_bus body; logs preserved inside).
+                    // Non-overlapping prior extractions.
                     let previous_touches: Vec<FileAccess> = if is_modification {
-                        let touches = file_touches.read().await;
-                        if let Some(accesses) = touches.get(&path) {
-                            let swarm_session_ids_set: HashSet<String> =
-                                swarm_session_ids.iter().cloned().collect();
-                            let result =
-                                latest_peer_touches(accesses, &session_id, &swarm_session_ids_set);
-                            crate::logging::info(&format!(
-                                "[file-activity] {} prior peer touches ({} total accesses)",
-                                result.len(),
-                                accesses.len()
-                            ));
-                            result
-                        } else {
-                            crate::logging::info("[file-activity] no touches for this path yet");
-                            vec![]
-                        }
+                        handles::SwarmServiceHandle::previous_peer_touches(
+                            &file_touches,
+                            &swarm_session_ids,
+                            &path,
+                            &session_id,
+                        )
+                        .await
                     } else {
                         vec![]
                     };
 
                     // If swarm peers previously touched this file, notify both sides so they
                     // can coordinate before the work diverges further.
+                    // Ola 4 Wave 4.1.4 ParamCollapse: entire alert construction, members.read()
+                    // for tx, name lookups, sends, and queue_soft calls now behind thin
+                    // MaintenanceServiceHandle dispatch (highest-impact remaining direct logic
+                    // using raw swarm_members/sessions/soft inside monitor_bus). Zero behavior change.
                     if !previous_touches.is_empty() {
-                        crate::logging::info(&format!(
-                            "[file-activity] {} touched by peers before modification — sending alerts",
-                            path.display()
-                        ));
-                        // Swarm membership query for names routed via thin SwarmServiceHandle
-                        // (Wave 4.1.2 SwarmStateInMonitor). Direct .read() + friendly_name
-                        // lookups extracted for the alert construction (peer + current names).
-                        // The `members` read is retained here solely for .event_tx access in
-                        // the notification sends (fanout/send/queue logic untouched per scope;
-                        // only query sites updated). Zero behavior change.
-                        let members = swarm_members.read().await;
-                        let current_name =
-                            handles::SwarmServiceHandle::get_member_friendly_name_for_notification(
-                                &swarm_members,
-                                &session_id,
-                            )
-                            .await;
-
-                        // Alert the current agent about previous peer touches (one per agent).
-                        if let Some(member) = members.get(&session_id) {
-                            for prev in &previous_touches {
-                                let prev_name =
-                                    handles::SwarmServiceHandle::get_member_friendly_name_for_notification(
-                                        &swarm_members,
-                                        &prev.session_id,
-                                    )
-                                    .await;
-                                let scope = file_activity_scope_label(prev, &touch);
-                                let intent_suffix = prev
-                                    .intent
-                                    .as_ref()
-                                    .map(|intent| format!(" — intent: {}", intent))
-                                    .unwrap_or_default();
-                                let alert_msg = format!(
-                                    "⚠ File activity: {} — {} — {} previously {} this file{}{}",
-                                    path.display(),
-                                    scope,
-                                    prev_name.as_deref().unwrap_or(&prev.session_id[..8]),
-                                    prev.op.as_str(),
-                                    prev.summary
-                                        .as_ref()
-                                        .map(|s| format!(": {}", s))
-                                        .unwrap_or_default(),
-                                    intent_suffix
-                                );
-                                let notification = ServerEvent::Notification {
-                                    from_session: prev.session_id.clone(),
-                                    from_name: prev_name,
-                                    notification_type: NotificationType::FileConflict {
-                                        path: path.display().to_string(),
-                                        operation: prev.op.as_str().to_string(),
-                                        intent: prev.intent.clone(),
-                                        summary: prev.summary.clone(),
-                                        detail: prev.detail.clone(),
-                                    },
-                                    message: alert_msg.clone(),
-                                };
-                                let _ = member.event_tx.send(notification);
-
-                                if !queue_soft_interrupt_for_session(
-                                    &session_id,
-                                    alert_msg.clone(),
-                                    false,
-                                    SoftInterruptSource::System,
-                                    &soft_interrupt_queues,
-                                    &sessions,
-                                )
-                                .await
-                                {
-                                    crate::logging::warn(&format!(
-                                        "Failed to queue file-activity soft interrupt for session {}",
-                                        session_id
-                                    ));
-                                }
-                            }
-                        }
-
-                        // Alert previous agents about the current modification.
-                        for prev in &previous_touches {
-                            if let Some(prev_member) = members.get(&prev.session_id) {
-                                let scope = file_activity_scope_label(prev, &touch);
-                                let intent_suffix = touch
-                                    .intent
-                                    .as_ref()
-                                    .map(|intent| format!(" — intent: {}", intent))
-                                    .unwrap_or_default();
-                                let alert_msg = format!(
-                                    "⚠ File activity: {} — {} — {} just {} this file you previously worked with{}{}",
-                                    path.display(),
-                                    scope,
-                                    current_name
-                                        .as_deref()
-                                        .unwrap_or(&session_id[..8.min(session_id.len())]),
-                                    touch.op.as_str(),
-                                    touch
-                                        .summary
-                                        .as_ref()
-                                        .map(|s| format!(": {}", s))
-                                        .unwrap_or_default(),
-                                    intent_suffix
-                                );
-                                let notification = ServerEvent::Notification {
-                                    from_session: session_id.clone(),
-                                    from_name: current_name.clone(),
-                                    notification_type: NotificationType::FileConflict {
-                                        path: path.display().to_string(),
-                                        operation: touch.op.as_str().to_string(),
-                                        intent: touch.intent.clone(),
-                                        summary: touch.summary.clone(),
-                                        detail: touch.detail.clone(),
-                                    },
-                                    message: alert_msg.clone(),
-                                };
-                                let _ = prev_member.event_tx.send(notification);
-
-                                if !queue_soft_interrupt_for_session(
-                                    &prev.session_id,
-                                    alert_msg.clone(),
-                                    false,
-                                    SoftInterruptSource::System,
-                                    &soft_interrupt_queues,
-                                    &sessions,
-                                )
-                                .await
-                                {
-                                    crate::logging::warn(&format!(
-                                        "Failed to queue file-activity soft interrupt for session {}",
-                                        prev.session_id
-                                    ));
-                                }
-                            }
-                        }
+                        handles::MaintenanceServiceHandle::dispatch_file_conflict_alerts(
+                            &swarm_members,
+                            &sessions,
+                            &soft_interrupt_queues,
+                            &previous_touches,
+                            &path,
+                            &touch,
+                            &session_id,
+                        )
+                        .await;
                     }
                 }
                 Ok(BusEvent::BackgroundTaskCompleted(task)) => {
@@ -1784,23 +1673,18 @@ impl handles::MaintenanceServiceHandle {
         files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
         swarm_members: Arc<RwLock<HashMap<String, SwarmMember>>>,
         swarms_by_id: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-        _swarm_plans: Arc<RwLock<HashMap<String, VersionedPlan>>>,
-        _swarm_coordinators: Arc<RwLock<HashMap<String, String>>>,
-        _shared_context: Arc<RwLock<HashMap<String, HashMap<String, SharedContext>>>>,
         sessions: Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>,
         soft_interrupt_queues: SessionInterruptQueues,
         event_history: Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
         event_counter: Arc<std::sync::atomic::AtomicU64>,
         swarm_event_tx: broadcast::Sender<SwarmEvent>,
     ) {
+        // Ola 4 4.1.4 ParamCollapse: 3 unused params pruned from the thin entry too (matches core fn).
         Server::monitor_bus(
             file_touches,
             files_touched_by_session,
             swarm_members,
             swarms_by_id,
-            _swarm_plans,
-            _swarm_coordinators,
-            _shared_context,
             sessions,
             soft_interrupt_queues,
             event_history,
