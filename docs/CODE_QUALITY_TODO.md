@@ -36,6 +36,7 @@ Status values:
   - Progress 2026-03-24: extracted socket/bootstrap helpers into `src/server/socket.rs`
   - Progress 2026-03-24: extracted reload marker/signal state into `src/server/reload_state.rs`
   - Progress 2026-03-24: extracted path/update/swarm identity utilities into `src/server/util.rs`
+  - Progress 2026-05-29: extracted runtime memory sampling helpers into `src/server/runtime_memory.rs`
 - [ ] Split `src/agent.rs` into orchestration, stream, interrupt, and tool-exec modules
 
 ### Next wave
@@ -73,7 +74,7 @@ Status values:
 - [x] Land the quality plan document
 - [x] Land this todo list
 - [x] Tighten CI guardrails
-- [ ] Begin the first high-ROI cleanup or split
+- [x] Begin the first high-ROI cleanup or split
   - Follow-up tracking issues: #51, #52, #53, #54
 
 ## Comprehensive Audit Backlog (2026-04-18)
