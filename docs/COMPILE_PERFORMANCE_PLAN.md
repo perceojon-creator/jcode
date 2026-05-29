@@ -206,6 +206,14 @@ Use it when capturing comparable before/after numbers for refactors.
   cache boundary for a low-coupling TUI helper module while preserving the existing `crate::tui::keybind::*`
   API. Validation: `cargo check -p jcode-tui-core`, `cargo test -p jcode-tui-core`, and
   `cargo check -p jcode --lib` passed.
+- 2026-05-29: Windows local warm measurement after extracting server runtime-memory sampling:
+  - `bash scripts/bench_selfdev_checkpoints.sh --skip-cold --touch src/server.rs --runs 1 --json`
+    failed before running because Bash saw CRLF in the script (`set: pipefail\r: invalid option name`).
+  - PowerShell fallback measurement: `cargo check -q` completed in **12.330s**.
+  - PowerShell fallback measurement: `cargo build --profile selfdev -p jcode --bin jcode -q`
+    completed in **37.407s**.
+  - These Windows numbers are not directly comparable to the Linux checkpoint table, but they show the
+    current Windows loop is still above the near-term targets and the benchmark scripts need a Windows/CRLF-safe path.
 
 Warm-only touched-file checkpoints captured so far on this machine:
 
