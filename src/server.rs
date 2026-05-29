@@ -1365,27 +1365,15 @@ impl Server {
                     let path = touch.path.clone();
                     let session_id = touch.session_id.clone();
 
-                    // Record this touch
-                    {
-                        let mut touches = file_touches.write().await;
-                        let accesses = touches.entry(path.clone()).or_insert_with(Vec::new);
-                        accesses.push(FileAccess {
-                            session_id: session_id.clone(),
-                            op: touch.op.clone(),
-                            timestamp: Instant::now(),
-                            absolute_time: std::time::SystemTime::now(),
-                            intent: touch.intent.clone(),
-                            summary: touch.summary.clone(),
-                            detail: touch.detail.clone(),
-                        });
-                    }
-                    {
-                        let mut reverse_index = files_touched_by_session.write().await;
-                        reverse_index
-                            .entry(session_id.clone())
-                            .or_default()
-                            .insert(path.clone());
-                    }
+                    // Record this touch + reverse index via thin MaintenanceServiceHandle passthroughs
+                    // (Ola 4 Wave 4.1 FileTouchExtractor slice — zero behavior change).
+                    handles::MaintenanceServiceHandle::record_file_touch(&file_touches, &touch).await;
+                    handles::MaintenanceServiceHandle::update_file_touch_reverse_index(
+                        &files_touched_by_session,
+                        &session_id,
+                        &path,
+                    )
+                    .await;
 
                     // Record event for subscription
                     {
@@ -1414,23 +1402,16 @@ impl Server {
                     }
 
                     // Find the swarm this session belongs to
-                    let swarm_session_ids: Vec<String> = {
-                        let members = swarm_members.read().await;
-                        if let Some(member) = members.get(&session_id) {
-                            if let Some(ref swarm_id) = member.swarm_id {
-                                let swarms = swarms_by_id.read().await;
-                                if let Some(swarm) = swarms.get(swarm_id) {
-                                    swarm.iter().cloned().collect()
-                                } else {
-                                    vec![]
-                                }
-                            } else {
-                                vec![]
-                            }
-                        } else {
-                            vec![]
-                        }
-                    };
+                    // Ola 4 Wave 4.1 SwarmStateInMonitor: now via thin read method on SwarmServiceHandle.
+                    // (passthrough; only this membership query site updated inside monitor_bus loop.
+                    // File touch recording + event recording paths left untouched per mandate.)
+                    let swarm_session_ids: Vec<String> =
+                        handles::SwarmServiceHandle::get_swarm_peers_for_session(
+                            &swarm_members,
+                            &swarms_by_id,
+                            &session_id,
+                        )
+                        .await;
 
                     // Only notify on modifications, and only about prior peer modifications.
                     // Plain reads are still tracked for later context/listing but should not

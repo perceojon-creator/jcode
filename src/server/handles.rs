@@ -13,9 +13,10 @@
 // main entry handlers (handle_client + handle_debug_client signatures narrowed per
 // SERVER_SERVICE_SPLIT_PLAN.md Move 4). Raw-param leafs remain in submodules only.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Instant, SystemTime};
 
 use tokio::sync::{Mutex, OnceCell, RwLock, broadcast};
 
@@ -124,6 +125,73 @@ impl SwarmServiceHandle {
             await_members_runtime,
             swarm_mutation_runtime,
         }
+    }
+
+    // === Ola 4 Wave 4.1 SwarmStateInMonitor (coordinate with Move6CollapseLead) ===
+    // Extracted ONLY the swarm membership/state queries from inside monitor_bus loop
+    // (reads of swarm_members + swarms_by_id to compute swarm_session_ids / peers,
+    // plus common member info lookups for names).
+    // Thin read methods on SwarmServiceHandle (appropriate owner for swarm state).
+    // Zero behavior change, passthrough first. Do not touch file touch recording
+    // or event paths (record_swarm_event, notification fanout, alert sends).
+    // Follows Ola 4 Master Plan Wave 4.1 + sub-wave gates.
+    //
+    // These will be used by monitor_bus call sites (updated below) and prepare
+    // for later param collapse + ownership move. Ergonomic &self variants for
+    // when SwarmServiceHandle is threaded; Arc-taking variants for transitional
+    // sites that still receive raw pieces (like current monitor_bus).
+
+    /// Thin read: list of peer session_ids sharing the swarm with the given session.
+    /// Direct extraction of the monitor_bus inline computation for swarm_session_ids.
+    /// Passthrough implementation (logic identical to prior inline block).
+    pub async fn get_swarm_peers_for_session(
+        swarm_members: &Arc<RwLock<HashMap<String, super::SwarmMember>>>,
+        swarms_by_id: &Arc<RwLock<HashMap<String, HashSet<String>>>>,
+        session_id: &str,
+    ) -> Vec<String> {
+        let members = swarm_members.read().await;
+        if let Some(member) = members.get(session_id) {
+            if let Some(ref swarm_id) = member.swarm_id {
+                let swarms = swarms_by_id.read().await;
+                if let Some(swarm) = swarms.get(swarm_id) {
+                    swarm.iter().cloned().collect()
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        }
+    }
+
+    /// Ergonomic instance-method variant (preferred when SwarmServiceHandle available via services.swarm()).
+    pub async fn swarm_peers_for(&self, session_id: &str) -> Vec<String> {
+        Self::get_swarm_peers_for_session(
+            &self.swarm_state.members,
+            &self.swarm_state.swarms_by_id,
+            session_id,
+        )
+        .await
+    }
+
+    /// Thin read helper: (friendly_name, swarm_id) for a session. Common membership query.
+    /// (Supports future extraction of other monitor_bus member lookups without event side-effects.)
+    pub async fn get_member_swarm_info(
+        swarm_members: &Arc<RwLock<HashMap<String, super::SwarmMember>>>,
+        session_id: &str,
+    ) -> (Option<String>, Option<String>) {
+        let members = swarm_members.read().await;
+        members
+            .get(session_id)
+            .map(|m| (m.friendly_name.clone(), m.swarm_id.clone()))
+            .unwrap_or((None, None))
+    }
+
+    /// Ergonomic variant.
+    pub async fn member_swarm_info(&self, session_id: &str) -> (Option<String>, Option<String>) {
+        Self::get_member_swarm_info(&self.swarm_state.members, session_id).await
     }
 }
 
@@ -246,6 +314,53 @@ impl MaintenanceServiceHandle {
     /// Completes canonical thin surface for recovery logic + marker paths behind MaintenanceServiceHandle.
     pub fn reload_state_summary(&self, max_age: std::time::Duration) -> String {
         crate::server::reload_state_summary(max_age)
+    }
+
+    // === Ola 4 Wave 4.1 Move 6 FileTouchExtractor (first concrete extraction slice) ===
+    // Pure passthrough thin methods for the FileTouch recording + reverse index mutations.
+    // Zero behavior change. The two write blocks previously directly after BusEvent::FileTouch
+    // in monitor_bus are now routed through these. Non-overlapping: no swarm state, event
+    // recording, param list, reload, provider, or TUI touched. See OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1.
+
+    /// Thin passthrough for primary FileTouch recording (the first write block).
+    /// Exact logic from monitor_bus; called via handle (zero behavior change).
+    pub(super) async fn record_file_touch(
+        file_touches: &Arc<RwLock<HashMap<PathBuf, Vec<super::FileAccess>>>>,
+        touch: &crate::bus::FileTouch,
+    ) {
+        let path = touch.path.clone();
+        let session_id = touch.session_id.clone();
+
+        // Record this touch
+        {
+            let mut touches = file_touches.write().await;
+            let accesses = touches.entry(path.clone()).or_insert_with(Vec::new);
+            accesses.push(super::FileAccess {
+                session_id: session_id.clone(),
+                op: touch.op.clone(),
+                timestamp: Instant::now(),
+                absolute_time: SystemTime::now(),
+                intent: touch.intent.clone(),
+                summary: touch.summary.clone(),
+                detail: touch.detail.clone(),
+            });
+        }
+    }
+
+    /// Thin passthrough for the reverse index mutation (the second write block).
+    /// Exact logic from monitor_bus; called via handle (zero behavior change).
+    pub(super) async fn update_file_touch_reverse_index(
+        files_touched_by_session: &Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
+        session_id: &str,
+        path: &PathBuf,
+    ) {
+        {
+            let mut reverse_index = files_touched_by_session.write().await;
+            reverse_index
+                .entry(session_id.to_string())
+                .or_default()
+                .insert(path.clone());
+        }
     }
 
     // E2E TEST REQUIREMENTS / GATES (strict for ANY future touches to reload guards, recovery, marker handoff, high-blast paths):
