@@ -1,7 +1,7 @@
 # jcode Fork — Live Orchestration Status
 
 **Orchestrator**: Grok (this session)  
-**Current Phase**: Ola 4 #1 FULLY DELIVERED (both default + --profile selfdev green). Tree stabilized and committed. Next: Ola 4 #2 — Finish SPLIT_PLAN Move 6 (monitor_bus collapse — the real high-leverage work).
+**Current Phase**: Ola 4 EXECUTION STARTED — Wave 4.1 (Move 6 monitor_bus collapse) in progress. Master plan document created: `docs/OLA4_MASTER_COMPLETION_PLAN.md`. Full Server Service Split + 9 Entry Points drive to completion using specialized sub-agents. Ola 4 #1 stabilization (both profiles green) complete and committed.
 
 **Ola 4 #1 Stabilization — Final Delivery (this session)**:
 - All E0603, duplicate definitions, doc comment, import, borrow, &emit_best_effort, and resolution issues fixed.
@@ -56,6 +56,140 @@
 - Boundary + budget scripts: Green (purity + swallowed hold from Ola 2).
 - **Conclusion**: All Ola 3 launch + verification artifacts pass gates. No blocking issues. Ready for Ola 4 (ranked moves above). (Absolute evidence: src/server/server.rs:1354 (raw monitor_bus), src/server/handles.rs:168 (thin Maintenance), C:\Users\jonathan barragan\jcode\src\server\handles.rs:258 (ProviderServiceHandle first slice + E2E gates), reload_state.rs + client_lifecycle.rs reload guards, 10 background task logs with exit 0 + timings, Fase0_Baseline_Report.md updated table, SERVER_SERVICE_SPLIT_PLAN.md:513 (Move 6).)
 - **Ola 3 Verifier + Integrator + ClosureCoordinator Agent 6 (final authoritative gate + 20min synthesis, cross-cut)**: Full verification executed (10 background tasks exit 0 with exact IDs/timings + source inspection of Ola 3 agent traces (handles.rs:258 Provider + 205 reload methods + background_tasks.rs:84 dispatch impls + server.rs:909 monitor routing) + late post-move E0603 sampling + Fase0 table edits (Provider row corrected + % bumps) + this ORCHESTRATION top-section polish). Integrated precise metrics from Ola 1 A–F + Ola 2 1–5 + exact Ola 3 charter (the 3 priorities) into authoritative Fase0_Baseline_Report.md:334 table + this official "Ola 3 Closure". Exact deltas: 25%/22%/28% on the 3 priorities; 92→94% #1, 0→22% #5, 18→28% #7, 65→70% #9; 89.66s build (019e71dc), 146s/2802 tests (019e71a9), late compile friction noted. **Ola 3 declared CLOSED / DELIVERED (with Ola 4 stabilization #1 explicit)** by the last agent / final voice of the wave. References complete; Fase0 report + this block authoritative. Swarm proven for exact 3 priorities. Ready for Ola 4. Be the final voice of the wave.
+
+---
+
+## Ola 4 Wave 4.1 Progress — Move 6 Completion (monitor_bus 100% collapse)
+
+**Lead**: Move6CollapseLead (this sub-agent, non-overlapping mandate per OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1)
+
+**Current State (post Ola 4 #1 stabilization, 2026-05-29/30)**:
+- Both profiles `cargo check -p jcode --lib` (default + selfdev) GREEN (baseline 17s / 11s warm).
+- Boundary `py -3 scripts/check_dependency_boundaries.py` GREEN.
+- monitor_bus (src/server.rs:1338) still has raw 12-param list + direct Arc writes in FileTouch arm (the only remaining raw mutation path; other BusEvent arms already delegate to MaintenanceServiceHandle dispatch_*).
+- MaintenanceServiceHandle (handles.rs:174) has reload methods + minimal state; dispatch_* live in background_tasks.rs impl per Ola 3; SwarmServiceHandle owns the file_touches / event Arcs.
+- Entry #1 at 95% (Fase0 table); target 98-99% for Ola 4 DoD.
+- No direct work on Provider facade, Reload ratchet, or TUI (strict per charter).
+- Zero behavior change until final ownership move in ParamCollapse sub-wave.
+
+**Sub-wave Breakdown** (exact from OLA4 plan + SPLIT_PLAN Move 6):
+- 4.1.1 FileTouchExtractor: record_file_touch + reverse index mutations (first mutations behind thin method).
+- 4.1.2 SwarmStateInMonitor: membership queries / get_swarm_* inside the loop.
+- 4.1.3 EventRecordingExtractor: record_swarm_event paths + notification fanout.
+- 4.1.4 MonitorBusParamCollapse: final sig narrow + state ownership (into handle or dedicated MaintenanceRuntime).
+- Cross: MonitorBusVerifier for gates.
+
+**Verification Gate (mandatory after each landing + at end)**: cargo check default+selfdev, fast 2802 tests (cargo test --lib --bins -- --test-threads=1), boundary.py x2, relevant E2E (file_activity tests, server integration, no reload/TUI), update todo + append "Sub-wave X.Y Closure" block here with metrics/evidence + small commit.
+
+**Repo Rules Enforced**: Small focused commits after each slice; fast cargo check after EVERY edit; push at end of session; surgical edits only in server/handles + server.rs monitor_bus + tests (no forbidden areas).
+
+---
+
+**Move6CollapseLead Kickoff (2026-05-29/30, initial reads complete)**:
+- Read exactly: docs/OLA4_MASTER_COMPLETION_PLAN.md (Wave 4.1 + sub-agents + gates), docs/ORCHESTRATION_STATUS.md (top + Ola 3/4 context), docs/Fase0_Baseline_Report.md (entry #1 Server Service Handles at 95% + Ola 3 notes on partial monitor_bus), SERVER_SERVICE_SPLIT_PLAN.md Move 6 section.
+- Full monitor_bus body (server.rs:1338-1624, FileTouch arm dominant ~180LOC raw writes + peer queries + record_swarm_event + queue_soft + alerts), current MaintenanceServiceHandle (handles.rs:174+ with Ola 3 reload + dispatch patterns), helpers (swarm.rs:668 record_swarm_event*, state.rs:27 latest_peer_touches + 556 queue_*, file_activity.rs:39 scope_label), spawn site (server.rs:869-908 direct clones + Server::monitor_bus call with stabilization comments), run_monitor_bus wrapper + cleanup (server.rs:1744+), background_tasks dispatch pattern.
+- Baseline checks: cargo check default+selfdev GREEN; boundary GREEN. Todo list initialized.
+- Per mandate: will coordinate (not execute detailed extraction) the 4 sub-agents. After each: full gate, ORCH append "Sub-wave X.Y Closure", small commit, advance todo.
+
+**Exact First 1-2 Thin Methods Proposal (for FileTouch path, Sub-wave 4.1.1 FileTouchExtractor)**:
+
+The first slice targets ONLY the two direct mutation blocks in FileTouch arm (server.rs ~1369-1388). Follows exact Ola 3 dispatch extraction pattern (bodies to `impl MaintenanceServiceHandle` as pub(super) assoc fns; old sites become thin calls or direct handle:: calls; 1-line delegates for compat if needed; zero behavior).
+
+**Proposed thin method #1 (primary for FileTouchExtractor)** — add inside `impl MaintenanceServiceHandle` in src/server/handles.rs (after reload_state_summary + E2E gate docs, before the ProviderServiceHandle struct):
+
+```rust
+    /// Thin seam for FileTouch recording + reverse index (Wave 4.1.1 FileTouchExtractor sub-wave).
+    /// Encapsulates the two direct writes previously in monitor_bus FileTouch arm (server.rs:1369-1388).
+    /// Per OLA4_MASTER_COMPLETION_PLAN Wave 4.1 + SPLIT_PLAN Move 6: first mutation path collapsed behind MaintenanceServiceHandle.
+    /// Signature mirrors the touch data + Arcs exactly (no extra indirection yet).
+    /// Zero behavior change; call-site replace is mechanical 1:1.
+    /// Future: when state migrates to handle or MaintenanceRuntime, this will take &self or &SwarmServiceHandle.
+    /// E2E gate note: any expansion requires file_activity_tests.rs + server integration tests + full gate (no reload/TUI touched).
+    pub(super) async fn record_file_touch(
+        file_touches: Arc<RwLock<HashMap<PathBuf, Vec<FileAccess>>>>,
+        files_touched_by_session: Arc<RwLock<HashMap<String, HashSet<PathBuf>>>>,
+        path: PathBuf,
+        session_id: String,
+        op: crate::bus::FileOperation,
+        intent: Option<String>,
+        summary: Option<String>,
+        detail: Option<String>,
+    ) {
+        {
+            let mut touches = file_touches.write().await;
+            let accesses = touches.entry(path.clone()).or_insert_with(Vec::new);
+            accesses.push(FileAccess {
+                session_id: session_id.clone(),
+                op: op.clone(),
+                timestamp: Instant::now(),
+                absolute_time: std::time::SystemTime::now(),
+                intent: intent.clone(),
+                summary: summary.clone(),
+                detail: detail.clone(),
+            });
+        }
+        {
+            let mut reverse_index = files_touched_by_session.write().await;
+            reverse_index
+                .entry(session_id.clone())
+                .or_default()
+                .insert(path.clone());
+        }
+    }
+```
+
+(Requires: bring `use std::collections::{HashMap, HashSet}; use std::path::PathBuf; use std::sync::Arc; use std::time::Instant;` + `use tokio::sync::RwLock;` + the local FileAccess type (re-export or qualify as super::FileAccess in handles if needed; FileOperation from bus). Keep surgical.)
+
+**Proposed call-site change** (to be done by FileTouchExtractor sub-agent in server.rs inside the `Ok(BusEvent::FileTouch(touch))` match arm, right after `let path = ...; let session_id = ...;` ):
+
+Replace the two mutation blocks (the `// Record this touch` { } and `// reverse` { } ) with:
+
+```rust
+                    // Record via thin MaintenanceServiceHandle seam (Wave 4.1.1 FileTouchExtractor).
+                    // Direct Arc writes eliminated from monitor_bus body for this path.
+                    handles::MaintenanceServiceHandle::record_file_touch(
+                        Arc::clone(&file_touches),
+                        Arc::clone(&files_touched_by_session),
+                        path.clone(),
+                        session_id.clone(),
+                        touch.op.clone(),
+                        touch.intent.clone(),
+                        touch.summary.clone(),
+                        touch.detail.clone(),
+                    )
+                    .await;
+```
+
+(The rest of the FileTouch arm — swarm peer computation at ~1417, record_swarm_event call, latest_peer_touches, notifications, queue_soft — remains untouched in this sub-wave. Locals path/session_id/is_modification still used downstream. Perfectly safe 1:1.)
+
+**Optional thin #2 (if FileTouchExtractor bundles the event record too, or for follow-on)**: A `record_file_touch_event(...)` that wraps the record_swarm_event call + member lookup at 1392-1414, but per split plan, keep to pure record+reverse for 4.1.1.
+
+**Handoff to FileTouchExtractor sub-agent** (spawn/coordinate):
+- Mandate for sub-agent: Implement exactly the above proposed method + call site change (no more, no less; no other monitor_bus arms, no swarm queries, no event fanout, no param list narrowing, no state move, no Provider/Reload/TUI).
+- Must: add necessary uses/qualifiers surgically; cargo check after edit; run relevant tests (file_activity + server::); boundary; then hand back for Lead gate.
+- After landing: Lead will run FULL gate (incl. 2802 if time), append "Sub-wave 4.1.1 FileTouchExtractor Closure" block here with metrics/IDs/evidence, small commit, advance todo.
+- Reference: this block + OLA4 plan Wave 4.1 + current server.rs:1364 FileTouch + handles.rs:261 (end of Maintenance impl).
+
+**Next Immediate (after sub-agent lands first slice)**: Propose 4.1.2 SwarmState methods (e.g. get_swarm_sessions_for_member or equivalent for the 1417-1433 query block + 1478 reads), spawn SwarmStateInMonitor sub-agent.
+
+**Status**: Proposal ready. Awaiting user spawn of FileTouchExtractor with this exact mandate + refs. All reads + baselines complete. Will report after each gate + append closure.
+
+**Todo Update**: See internal structured list (wave41-init complete; propose-filetouch-slice complete; subwave-filetouch now ready for handoff).
+
+**Verification Baseline (pre first edit)**: checks GREEN, boundary GREEN. No code changes in this kickoff edit (docs + proposal only).
+
+**References** (absolute):
+- monitor_bus: C:\Users\jonathan barragan\jcode\src\server.rs:1338 (sig + FileTouch 1364-1592)
+- Maintenance: C:\Users\jonathan barragan\jcode\src\server\handles.rs:174 (struct+new+reload methods 207-261)
+- Spawn: server.rs:869
+- run_monitor_bus thin: server.rs:1744
+- cleanup (disabled): server.rs:1779
+- Dispatch pattern example: src/server/background_tasks.rs:86-214
+- Fase0 #1: docs/Fase0_Baseline_Report.md:338 (95%)
+- OLA4: docs/OLA4_MASTER_COMPLETION_PLAN.md:50-68 (Wave 4.1 exact)
+- SPLIT: docs/SERVER_SERVICE_SPLIT_PLAN.md:513 (Move 6)
+
+Move6CollapseLead ready for sub-wave execution. Surgical. Report frequently.
 
 ---
 
