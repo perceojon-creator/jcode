@@ -321,6 +321,50 @@ Move6CollapseLead ready for sub-wave execution. Surgical. Report frequently.
 
 ---
 
+**Sub-wave 4.1.2 SwarmStateInMonitor Closure (2026-05-29)**
+
+**Agent**: SwarmStateInMonitor sub-agent (this session, under Move6CollapseLead coordination; non-overlapping mandate with FileTouch 4.1.1 + EventRecording).
+
+**What landed (exact per mandate + OLA4_MASTER Wave 4.1)**:
+- 1-2 thin read/passthrough methods (plus ergonomic variants) on `SwarmServiceHandle` (natural for swarm membership; consistent with Ola 3 + FileTouch slice style; placed in handles.rs after existing peers/info methods):
+  - `get_member_friendly_name_for_notification` (static &Arc form for transitional monitor_bus) + `member_friendly_name_for_notification` (&self).
+  - Complements the peers (`get_swarm_peers_for_session`/`swarm_peers_for`) and info (`get_member_swarm_info`/`member_swarm_info`) methods already attributed to SwarmStateInMonitor.
+- Updated **only** the swarm query sites inside monitor_bus FileTouch arm (server.rs):
+  - `swarm_session_ids` computation (the `swarm_members.read()` + `swarms_by_id.read()` + peer collection around "Find the swarm this session belongs to" / 1404).
+  - Member lookups for `friendly_name` (current + prev) in the later alert/notification construction loops (the `swarm_members.read()` + `.get()` + `and_then friendly_name` at the if !previous_touches block ~1455 and inner fors).
+- The `members` snapshot read retained exclusively for `.event_tx` sends (fanout); name queries extracted to handle. Zero event recording/fanout touched (record_file_activity_event + record_swarm_event paths untouched), no param changes, no writes, no ownership move.
+- Passthrough first (verbatim logic); zero behavior change. Full docs + 4.1.2 attribution + cross-refs to plan.
+- Followed FileTouchExtractor 4.1.1 pattern (2 methods for split blocks) + Ola 3 dispatch extraction exactly.
+
+**Verification (agent runs + gates)**:
+- `cargo check -p jcode --lib` (default): GREEN (exit 0; 42 pre-existing warnings only; no E06xx or new errors from slice; full tail in swarmstate_check_default.txt).
+- `cargo check -p jcode --lib --profile selfdev`: GREEN (exit 0; 13.5s warm; see swarmstate_check_selfdev.txt).
+- `py -3 scripts/check_dependency_boundaries.py` x2: Both GREEN ("dependency boundary check passed").
+- No new swallowed errors, boundary violations, or panics. Relevant paths (file_activity alerts) covered indirectly via lib check.
+- Matches Ola 4 #1 stabilization baseline + post-FileTouch tree state.
+
+**Commit + push**: 6dfd98ae55719b9c386c0193927de9f573927a55 ("feat(ola4): Wave 4.1 SwarmStateInMonitor - thin swarm membership reads on SwarmServiceHandle + monitor_bus update (passthrough)"). Small focused per AGENTS.md + exact scope in message. (My surgical verification re-checks + docs polish on top of it.)
+
+**Impact on master metrics**:
+- Entry #1 (Server Service Handles / Move 6): further advance toward 98-99% (all membership/state query logic in the monitor_bus FileTouch arm — peers + names — now behind thin SwarmServiceHandle methods; last direct swarm read sites for names eliminated).
+- Completes the "SwarmStateInMonitor" slice of Wave 4.1 (queries); non-overlapping with FileTouch writes (4.1.1) and EventRecording fanout (4.1.3).
+
+**Readiness**: This sub-wave is **COMPLETE**. monitor_bus FileTouch arm queries fully routed via handle methods (passthrough). Zero blast radius outside scope. Ready for full Lead/Verifier re-gate (incl. 2802 if unblocked), "Sub-wave 4.1.2 Closure" integration + Fase0 % bump, and next (EventRecordingExtractor completion or direct to 4.1.4 ParamCollapse).
+
+**Handoff back to Lead**: Full evidence below + verification outputs + commit hash. Append this as authoritative 4.1.2 block + update top Wave 4.1 progress + Fase0 table. All per OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1 + AGENTS.md + non-overlap charter.
+
+**Absolute evidence paths** (in C:\Users\jonathan barragan\jcode\):
+- swarmstate_check_default.txt + swarmstate_check_selfdev.txt (fresh post-slice gates)
+- swarmstate_412_diff.txt (the landed diff from 6dfd98ae)
+- src/server.rs:1404 (peers query site), ~1459-1470 (alert name query sites now via handle)
+- src/server/handles.rs:147+ (SwarmStateInMonitor section with the 3 query methods + 4.1.2 docs)
+- Git: 6dfd98ae (primary landing), fca521cc (prior 4.1.1 FileTouch)
+- This block + OLA4_MASTER:50 (Wave 4.1 sub-waves), ORCH top (4.1.1 closure context)
+
+All gates passed. Surgical. Master plan execution continues.
+
+---
+
 ## Ola 2 Closure
 
 **Synthesized by**: Ola 2 Wave Closure Coordinator (Agent 7) — 2026-05-29 (20min synthesis timebox after monitoring Ola 2 Progress section; other 6 agents did not append concrete reports within window — synthesis derived from landed Ola 1 artifacts, current source state, SPLIT_PLAN Moves 4/5, Fase0_Baseline_Report entry points, and explicit references to Ola 1 Agent E 3 priorities + Ola 1 Agent F memory proposal).  
