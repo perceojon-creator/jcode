@@ -5,3 +5,21 @@ ios_simulator_screenshot.png
 /.wrangler/
 /tmp/
 /.jcode/generated-images/
+
+# Rust build artifacts and binaries (important for this project)
+*.exe
+*.pdb
+*.rlib
+*.rmeta
+*.d
+target/
+debug/
+release/
+selfdev/
+fastdev/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*~
