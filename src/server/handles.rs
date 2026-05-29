@@ -193,6 +193,50 @@ impl SwarmServiceHandle {
     pub async fn member_swarm_info(&self, session_id: &str) -> (Option<String>, Option<String>) {
         Self::get_member_swarm_info(&self.swarm_state.members, session_id).await
     }
+
+    // === Ola 4 Wave 4.1 EventRecordingExtractor ===
+    // Extracted ONLY the event recording + notification fanout logic for the
+    // record_swarm_event call (and SwarmEventType::FileTouch construction) after
+    // FileTouch inside monitor_bus. Thin passthrough on SwarmServiceHandle (owner
+    // of event_history / event_counter / swarm_event_tx). Zero behavior change.
+    // Wired at the single monitor_bus site using get_member_swarm_info helper
+    // (pre-provided by SwarmStateInMonitor; no membership query code authored here).
+    // Strictly non-overlapping: no file touch writes, no swarm membership queries,
+    // no FileConflict notification/alert logic (separate fanout), no param collapse.
+    // Follows OLA4_MASTER_COMPLETION_PLAN.md Wave 4.1 + SERVER_SERVICE_SPLIT_PLAN.md Move 6 exactly.
+    // Small focused slice + cargo check both profiles + targeted tests + commit.
+
+    /// Thin passthrough for recording swarm event on FileTouch (the record_swarm_event
+    /// invocation + construction of SwarmEventType::FileTouch after BusEvent::FileTouch
+    /// in monitor_bus). Delegates to the core recorder (fanout to swarm_event_tx + history).
+    /// Signature mirrors record_swarm_event but specialized for this FileTouch variant.
+    /// Zero behavior change.
+    pub(super) async fn record_file_activity_event(
+        event_history: &Arc<RwLock<std::collections::VecDeque<super::SwarmEvent>>>,
+        event_counter: &Arc<std::sync::atomic::AtomicU64>,
+        swarm_event_tx: &broadcast::Sender<super::SwarmEvent>,
+        session_id: String,
+        session_name: Option<String>,
+        swarm_id: Option<String>,
+        touch: &crate::bus::FileTouch,
+    ) {
+        super::swarm::record_swarm_event(
+            event_history,
+            event_counter,
+            swarm_event_tx,
+            session_id,
+            session_name,
+            swarm_id,
+            super::SwarmEventType::FileTouch {
+                path: touch.path.to_string_lossy().to_string(),
+                op: touch.op.as_str().to_string(),
+                intent: touch.intent.clone(),
+                summary: touch.summary.clone(),
+                detail: touch.detail.clone(),
+            },
+        )
+        .await;
+    }
 }
 
 /// Thin handle for **Client** connection concerns (accept loops, connection registry, etc.).
