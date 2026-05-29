@@ -55,11 +55,58 @@ use self::reload::await_reload_signal;
 use self::runtime::ServerRuntime;
 use self::swarm::{
     broadcast_swarm_plan, broadcast_swarm_plan_with_previous, broadcast_swarm_status,
-    record_swarm_event, record_swarm_event_for_session, refresh_swarm_task_staleness,
+    refresh_swarm_task_staleness,
     remove_plan_participant, remove_session_file_touches, remove_session_from_swarm,
     rename_plan_participant, run_swarm_message, update_member_status,
     update_member_status_with_report,
 };
+
+// === Temporary compat re-export shim (Move6ExtractionHygieneFixer, Ola 4 Wave 4.1) ===
+// These two were part of the mixed `use self::swarm` import list in server.rs.
+// The EventRecordingExtractor slice performed "import hygiene" by removing them
+// from that list (only the one FileTouch recording site *inside* monitor_bus
+// body was updated to go through the new SwarmServiceHandle::record_file_activity_event
+// + SwarmStateInMonitor helpers; per slice comments: "Do not touch ... event paths").
+// 
+// This left the exact 10 call sites broken (see verification_gate_postslice_check_default.txt):
+//   src/server/client_comm_channels.rs
+//   src/server/client_comm_context.rs
+//   src/server/client_comm_message.rs
+//   src/server/client_disconnect_cleanup.rs
+//   src/server/comm_control.rs
+//   src/server/comm_plan.rs
+//   src/server/comm_session.rs
+//   src/server/comm_sync.rs
+//   src/server/debug_session_admin.rs
+//   src/server/client_session.rs:1338
+// 
+// They rely on `use super::record_swarm_event` (and _for_session) or direct
+// `super::record_swarm_event(...)` because that is how all the other
+// server-internal swarm utilities (broadcast_*, update_member_*, persist_* etc.)
+// are made available to the server submodules.
+// 
+// Full migration of these 10 sites (and their ~dozens of call sites) to receive
+// SwarmServiceHandle (or MaintenanceServiceHandle) and call thin record_* methods
+// on it is explicitly out of scope for this narrow hygiene-closer task
+// (reserved for MonitorBusParamCollapse / Move 6 continuation).
+// 
+// Solution (smallest possible, zero behavior change, both profiles green):
+// Separate explicit `use` (non-pub, same mechanism as the sibling items in the
+// main swarm use block and the swarm_channels use block) + extensive docs.
+// This makes the "temporary compat for pre-extraction call sites" nature
+// unmistakable and auditable. The shim can be deleted in a future wave once
+// the remaining direct record_* calls have been collapsed behind handles.
+// 
+// Does not touch monitor_bus, does not touch FileTouch logic, does not start
+// new extractions, does not edit any of the 10 call-site files.
+// 
+// References:
+// - docs/OLA4_MASTER_COMPLETION_PLAN.md (Wave 4.1 EventRecordingExtractor expectations)
+// - docs/ORCHESTRATION_STATUS.md (post-slice + hygiene sections)
+// - src/server/handles.rs:197 (the EventRecordingExtractor comment block)
+// - prior Ola 3 patterns for dispatch_* / record_* migrations via handles
+use self::swarm::{record_swarm_event, record_swarm_event_for_session};
+
 use self::swarm_channels::{
     remove_session_channel_subscriptions, subscribe_session_to_channel,
     unsubscribe_session_from_channel,
